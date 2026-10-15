@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=MP3Player
+GenericName=Music Player
+Comment=Minimalist music player
+Exec=mp3player %F
+Icon=mp3player
+Terminal=false
+Categories=Audio;AudioVideo;Player;
+StartupNotify=true
+MimeType=audio/mpeg;audio/mp3;audio/flac;audio/x-flac;audio/ogg;audio/vorbis;audio/x-vorbis+ogg;audio/opus;audio/x-opus+ogg;audio/wav;audio/x-wav;audio/wave;audio/aac;audio/mp4;audio/m4a;audio/x-m4a;audio/aiff;audio/x-aiff;audio/x-caf;
