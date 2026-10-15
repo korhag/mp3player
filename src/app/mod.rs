@@ -7,9 +7,10 @@ mod menu;
 mod playback;
 mod podcasts;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use iced::widget::image;
 use iced::window::{self, icon};
@@ -128,6 +129,14 @@ pub struct State {
     pub(crate) cursor: Point,
     pub(crate) menu: Option<MenuState>,
     pub(crate) podcasts: PodcastState,
+    /// Decoded show artwork, keyed by image URL.
+    pub(crate) artwork: HashMap<String, image::Handle>,
+    /// Audio URL of the episode whose playhead we are recording.
+    pub(crate) resume_url: Option<String>,
+    pub(crate) resume_duration: Duration,
+    resume_hold: Option<Duration>,
+    resume_hold_since: Instant,
+    listening_saved_at: Instant,
     seen_generation: u64,
     end_armed: bool,
 }
@@ -180,13 +189,17 @@ fn window_icon() -> Option<window::Icon> {
 fn boot() -> (State, Task<Message>) {
     let settings = Settings::load();
     let startup = STARTUP.get().cloned().unwrap_or_default();
-    let state = State::from_settings(&settings);
+    let mut state = State::from_settings(&settings);
     let mut tasks = Vec::new();
+    if let Some(url) = state
+        .podcasts
+        .selected_show()
+        .and_then(|show| show.image_url.clone())
+    {
+        tasks.push(state.request_artwork(url));
+    }
     if !startup.is_empty() {
-        tasks.push(crate::tasks::load_tracks(
-            startup,
-            LoadMode::ReplaceAndPlay,
-        ));
+        tasks.push(crate::tasks::load_tracks(startup, LoadMode::ReplaceAndPlay));
     } else if !settings.queue.is_empty() {
         tasks.push(crate::tasks::load_tracks(
             settings.queue.clone(),
@@ -320,11 +333,16 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             crate::tasks::load_tracks(vec![path], LoadMode::Append { interrupt: false })
         }
         Message::WindowClose => {
+            state.sync_listening_memory();
+            state.flush_listening();
             state.persist();
             Task::none()
         }
         Message::CursorMoved(position) => {
             state.cursor = position;
+            if let Some(gesture) = &mut state.podcasts.drag {
+                gesture.follow(position.x, position.y);
+            }
             Task::none()
         }
         Message::OpenMenu(target) => {
@@ -399,6 +417,12 @@ impl State {
                 &settings.podcast_index_key,
                 &settings.podcast_index_secret,
             ),
+            artwork: HashMap::new(),
+            resume_url: None,
+            resume_duration: Duration::ZERO,
+            resume_hold: None,
+            resume_hold_since: Instant::now(),
+            listening_saved_at: Instant::now(),
             seen_generation: 0,
             end_armed: false,
         }
@@ -417,6 +441,9 @@ impl State {
             podcast_index_secret: self.podcasts.saved_secret.clone(),
         };
         let _ = settings.save();
+        let _ = crate::podcast::save_listening(&self.podcasts.listening);
+        let _ = crate::podcast::save_groups(&self.podcasts.groups);
+        let _ = crate::podcast::save_panes(&self.podcasts.panes);
     }
 }
 

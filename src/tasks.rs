@@ -76,6 +76,9 @@ pub fn shortcuts_and_drops(
         Event::Mouse(mouse::Event::CursorMoved { position }) => {
             Some(Message::CursorMoved(position))
         }
+        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+            Some(Message::Podcast(crate::app::PodcastMessage::DragReleased))
+        }
         Event::Window(window::Event::FileDropped(path)) => Some(Message::FilesDropped(path)),
         Event::Window(window::Event::CloseRequested) => Some(Message::WindowClose),
         Event::Keyboard(keyboard::Event::KeyPressed {

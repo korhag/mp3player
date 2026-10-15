@@ -76,8 +76,8 @@ impl Default for Snapshot {
 }
 
 enum Command {
-    Play(PathBuf),
-    PlayStream(String),
+    Play { path: PathBuf, start_at: Duration },
+    PlayStream { url: String, start_at: Duration },
     Pause,
     Resume,
     Stop,
@@ -88,6 +88,7 @@ enum Command {
 
 struct PendingStream {
     token: u64,
+    start_at: Duration,
     rx: Receiver<Result<OpenedStream, String>>,
 }
 
@@ -127,12 +128,12 @@ impl AudioHandle {
         }
     }
 
-    pub fn play(&self, path: PathBuf) {
-        let _ = self.tx.send(Command::Play(path));
+    pub fn play(&self, path: PathBuf, start_at: Duration) {
+        let _ = self.tx.send(Command::Play { path, start_at });
     }
 
-    pub fn play_stream(&self, url: String) {
-        let _ = self.tx.send(Command::PlayStream(url));
+    pub fn play_stream(&self, url: String, start_at: Duration) {
+        let _ = self.tx.send(Command::PlayStream { url, start_at });
     }
 
     pub fn pause(&self) {
@@ -208,15 +209,18 @@ fn audio_thread(rx: Receiver<Command>, snapshot: Arc<Mutex<Snapshot>>, mut volum
         if let Some(command) = command {
             match command {
                 Command::Shutdown => break,
-                Command::Play(path) => {
+                Command::Play { path, start_at } => {
                     play_token += 1;
                     pending = None;
                     finish_stream(&player, &mut stream_runtime);
                     generation += 1;
-                    match load_source(&player, &path, volume) {
+                    match load_source(&player, &path, volume, start_at) {
                         Ok(()) => {
                             active = true;
                             error = None;
+                            if start_at > Duration::ZERO {
+                                seek_position = Some(start_at);
+                            }
                         }
                         Err(message) => {
                             player.stop();
@@ -225,13 +229,13 @@ fn audio_thread(rx: Receiver<Command>, snapshot: Arc<Mutex<Snapshot>>, mut volum
                         }
                     }
                 }
-                Command::PlayStream(url) => {
+                Command::PlayStream { url, start_at } => {
                     play_token += 1;
                     let token = play_token;
                     finish_stream(&player, &mut stream_runtime);
                     active = false;
                     error = None;
-                    pending = Some(spawn_stream(url, token));
+                    pending = Some(spawn_stream(url, token, start_at));
                 }
                 Command::Pause => {
                     player.pause();
@@ -261,14 +265,17 @@ fn audio_thread(rx: Receiver<Command>, snapshot: Arc<Mutex<Snapshot>>, mut volum
             }
         }
 
-        if let Some(arrived) = take_ready_stream(&mut pending, play_token) {
+        if let Some((arrived, start_at)) = take_ready_stream(&mut pending, play_token) {
             match arrived {
-                Ok(opened) => match start_stream(&player, opened, volume) {
+                Ok(opened) => match start_stream(&player, opened, volume, start_at) {
                     Ok(runtime) => {
                         stream_runtime = Some(runtime);
                         generation += 1;
                         active = true;
                         error = None;
+                        if start_at > Duration::ZERO {
+                            seek_position = Some(start_at);
+                        }
                     }
                     Err(message) => {
                         generation += 1;
@@ -301,7 +308,7 @@ fn finish_stream(player: &Player, runtime: &mut Option<tokio::runtime::Runtime>)
     runtime.take();
 }
 
-fn spawn_stream(url: String, token: u64) -> PendingStream {
+fn spawn_stream(url: String, token: u64, start_at: Duration) -> PendingStream {
     let (tx, rx) = mpsc::channel();
     let spawned = std::thread::Builder::new()
         .name("mp3player-stream-loader".into())
@@ -311,30 +318,39 @@ fn spawn_stream(url: String, token: u64) -> PendingStream {
     if spawned.is_err() {
         let (tx, rx) = mpsc::channel();
         let _ = tx.send(Err("Could not start the stream loader.".to_string()));
-        return PendingStream { token, rx };
+        return PendingStream {
+            token,
+            start_at,
+            rx,
+        };
     }
-    PendingStream { token, rx }
+    PendingStream {
+        token,
+        start_at,
+        rx,
+    }
 }
 
 // A stream that finishes after the listener has moved on is dropped here.
 fn take_ready_stream(
     pending: &mut Option<PendingStream>,
     play_token: u64,
-) -> Option<Result<OpenedStream, String>> {
+) -> Option<(Result<OpenedStream, String>, Duration)> {
     let current = pending.as_ref()?;
     if current.token != play_token {
         pending.take();
         return None;
     }
+    let start_at = current.start_at;
     match current.rx.try_recv() {
         Ok(result) => {
             pending.take();
-            Some(result)
+            Some((result, start_at))
         }
         Err(mpsc::TryRecvError::Empty) => None,
         Err(mpsc::TryRecvError::Disconnected) => {
             pending.take();
-            Some(Err("The stream loader stopped.".to_string()))
+            Some((Err("The stream loader stopped.".to_string()), start_at))
         }
     }
 }
@@ -343,6 +359,7 @@ fn start_stream(
     player: &Player,
     opened: OpenedStream,
     volume: f32,
+    start_at: Duration,
 ) -> Result<tokio::runtime::Runtime, String> {
     let (reader, runtime) = opened.into_parts();
     let byte_len = reader.content_length().filter(|len| *len > 0);
@@ -360,11 +377,19 @@ fn start_stream(
     player.clear();
     player.append(decoder);
     player.set_volume(volume);
+    if start_at > Duration::ZERO {
+        let _ = player.try_seek(start_at);
+    }
     player.play();
     Ok(runtime)
 }
 
-fn load_source(player: &Player, path: &std::path::Path, volume: f32) -> Result<(), String> {
+fn load_source(
+    player: &Player,
+    path: &std::path::Path,
+    volume: f32,
+    start_at: Duration,
+) -> Result<(), String> {
     let file =
         File::open(path).map_err(|error| format!("Could not open {}: {error}", path.display()))?;
     let decoder = Decoder::new(BufReader::new(file))
@@ -372,6 +397,9 @@ fn load_source(player: &Player, path: &std::path::Path, volume: f32) -> Result<(
     player.clear();
     player.append(decoder);
     player.set_volume(volume);
+    if start_at > Duration::ZERO {
+        let _ = player.try_seek(start_at);
+    }
     player.play();
     Ok(())
 }

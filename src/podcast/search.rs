@@ -165,6 +165,9 @@ pub async fn search(query: String, key: String, secret: String) -> Result<Vec<Sh
             title: text_field(feed, "title").unwrap_or_else(|| "Untitled show".to_string()),
             author: text_field(feed, "author").unwrap_or_default(),
             image_url: text_field(feed, "image").or_else(|| text_field(feed, "artwork")),
+            description: text_field(feed, "description")
+                .map(|text| crate::podcast::plain_text(&text))
+                .unwrap_or_default(),
             episodes: Vec::new(),
         });
     }

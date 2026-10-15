@@ -22,7 +22,12 @@ impl State {
     pub(crate) fn on_tick(&mut self) -> Task<Message> {
         let snapshot = self.audio.snapshot();
         if self.seek_drag.is_none() {
-            self.position = snapshot.position;
+            self.position = self.reported_position(snapshot.position);
+        }
+        self.sync_listening_memory();
+        let playing = snapshot.active && !snapshot.paused && !snapshot.loading;
+        if playing && self.listening_saved_at.elapsed() >= config::RESUME_SAVE_EVERY {
+            self.flush_listening();
         }
         if snapshot.generation != self.seen_generation {
             self.seen_generation = snapshot.generation;
@@ -52,6 +57,8 @@ impl State {
         if snapshot.paused {
             self.audio.resume();
         } else {
+            self.sync_listening_memory();
+            self.flush_listening();
             self.audio.pause();
         }
         Task::none()
@@ -59,7 +66,8 @@ impl State {
 
     pub(crate) fn skip_next(&mut self, automatic: bool) -> Task<Message> {
         match self.queue.go_next(automatic) {
-            Step::Play | Step::Restart => self.start_current(),
+            Step::Play => self.start_current(),
+            Step::Restart => self.start_from_beginning(),
             Step::End => {
                 self.stop_playback();
                 self.persist();
@@ -76,9 +84,15 @@ impl State {
                 if snapshot.active && !snapshot.empty {
                     self.audio.seek(Duration::ZERO);
                     self.position = Duration::ZERO;
+                    self.resume_hold = Some(Duration::ZERO);
+                    self.resume_hold_since = std::time::Instant::now();
+                    if let Some(url) = self.resume_url.clone() {
+                        self.podcasts.listening.positions.remove(&url);
+                    }
+                    self.flush_listening();
                     Task::none()
                 } else {
-                    self.start_current()
+                    self.start_from_beginning()
                 }
             }
             Step::End => Task::none(),
@@ -86,6 +100,32 @@ impl State {
     }
 
     pub(crate) fn start_current(&mut self) -> Task<Message> {
+        self.begin_playback(true)
+    }
+
+    // --------------------------------------------------------
+    // Method: start_from_beginning
+    // Purpose: Restarts the current track. Repeat-one and the
+    //          previous button use this so a saved position is
+    //          not applied on top of an intentional restart.
+    // --------------------------------------------------------
+    pub(crate) fn start_from_beginning(&mut self) -> Task<Message> {
+        self.begin_playback(false)
+    }
+
+    fn begin_playback(&mut self, resume: bool) -> Task<Message> {
+        let next_url = self
+            .queue
+            .current()
+            .and_then(|track| track.stream_url.clone());
+        let same_episode = self.resume_url == next_url && next_url.is_some();
+        if !same_episode {
+            self.sync_listening_memory();
+            self.flush_listening();
+        }
+        if !resume && let Some(url) = &next_url {
+            self.podcasts.listening.positions.remove(url);
+        }
         let Some(track) = self.queue.current() else {
             self.stop_playback();
             self.cover = None;
@@ -94,21 +134,37 @@ impl State {
         let cover = track.cover.clone();
         let path = track.path.clone();
         let stream_url = track.stream_url.clone();
+        let duration = track.duration;
         let local = track.plays_from_file();
+        let start_at = stream_url
+            .as_ref()
+            .and_then(|url| self.podcasts.listening.positions.get(url).copied())
+            .and_then(|secs| crate::podcast::resume_point(secs, duration))
+            .unwrap_or(Duration::ZERO);
         self.cover = cover.map(image::Handle::from_bytes);
-        self.position = Duration::ZERO;
+        self.position = start_at;
         self.seek_drag = None;
+        self.resume_url = stream_url.clone();
+        self.resume_duration = duration;
+        self.resume_hold = (start_at > Duration::ZERO).then_some(start_at);
+        self.resume_hold_since = std::time::Instant::now();
+        self.podcasts.resume_skip_sync = false;
+        if start_at > Duration::ZERO {
+            self.status = format!("Resuming at {}", crate::util::format_time(start_at));
+        }
         if local {
             if let Some(track) = self.queue.current_mut() {
                 track.missing = false;
             }
-            self.audio.play(path);
+            self.audio.play(path, start_at);
             self.persist();
             return Task::none();
         }
         if let Some(url) = stream_url {
-            self.status = "Opening stream...".to_string();
-            self.audio.play_stream(url);
+            if start_at == Duration::ZERO {
+                self.status = "Opening stream...".to_string();
+            }
+            self.audio.play_stream(url, start_at);
             self.persist();
             return Task::none();
         }
@@ -122,6 +178,10 @@ impl State {
     }
 
     pub(crate) fn stop_playback(&mut self) {
+        self.sync_listening_memory();
+        self.flush_listening();
+        self.resume_url = None;
+        self.resume_hold = None;
         self.audio.stop();
         self.end_armed = false;
         self.position = Duration::ZERO;
@@ -131,9 +191,59 @@ impl State {
         if let Some(value) = self.seek_drag.take() {
             let position = Duration::from_secs_f32(value.max(0.0));
             self.position = position;
+            self.resume_hold = None;
             self.audio.seek(position);
+            self.sync_listening_memory();
+            self.flush_listening();
         }
         Task::none()
+    }
+
+    // --------------------------------------------------------
+    // Method: reported_position
+    // Purpose: Keeps the resumed playhead on screen until the
+    //          audio thread reports a matching position.
+    // --------------------------------------------------------
+    fn reported_position(&mut self, reported: Duration) -> Duration {
+        let Some(hold) = self.resume_hold else {
+            return reported;
+        };
+        let caught_up = if hold == Duration::ZERO {
+            reported < Duration::from_secs(2)
+        } else {
+            reported > Duration::from_secs(1) && reported + Duration::from_secs(2) >= hold
+        };
+        if caught_up || self.resume_hold_since.elapsed() >= Duration::from_secs(3) {
+            self.resume_hold = None;
+            reported
+        } else {
+            hold
+        }
+    }
+
+    // --------------------------------------------------------
+    // Method: sync_listening_memory
+    // Purpose: Copies the playhead into the episode map. Disk
+    //          writes happen on a timer and when playback changes.
+    // --------------------------------------------------------
+    pub(crate) fn sync_listening_memory(&mut self) {
+        if self.resume_hold.is_some() || self.podcasts.resume_skip_sync {
+            return;
+        }
+        let Some(url) = self.resume_url.clone() else {
+            return;
+        };
+        crate::podcast::note_listen(
+            &mut self.podcasts.listening,
+            &url,
+            self.position,
+            self.resume_duration,
+        );
+    }
+
+    pub(crate) fn flush_listening(&mut self) {
+        self.listening_saved_at = std::time::Instant::now();
+        let _ = crate::podcast::save_listening(&self.podcasts.listening);
     }
 
     pub(crate) fn seek_by(&mut self, delta: f32) -> Task<Message> {

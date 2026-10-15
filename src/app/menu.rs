@@ -24,6 +24,7 @@ pub enum MenuTarget {
     Playlist(String),
     Episode { feed_url: String, guid: String },
     Show(String),
+    Group(usize),
 }
 
 #[derive(Debug, Clone)]

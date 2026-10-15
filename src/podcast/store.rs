@@ -67,6 +67,7 @@ mod tests {
             title: "Sample".to_string(),
             author: "Host".to_string(),
             image_url: None,
+            description: String::new(),
             episodes: vec![Episode {
                 guid: "ep-1".to_string(),
                 title: "One".to_string(),

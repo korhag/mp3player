@@ -9,12 +9,14 @@ mod footer;
 mod icons;
 mod now_playing;
 mod playlists_view;
+mod podcast_panes;
 mod podcasts_view;
 mod queue_view;
 mod settings_view;
 mod tabs;
 
-use iced::widget::{column, container, row, stack};
+use iced::widget::scrollable::Scrollbar;
+use iced::widget::{column, container, row, scrollable, stack};
 use iced::{Element, Length};
 
 use crate::app::{Message, State, Tab};
@@ -75,9 +77,34 @@ pub fn view(state: &State) -> Element<'_, Message> {
         .width(Length::Fill)
         .height(Length::Fill)
         .style(theme::app_background(palette));
-    if state.menu.is_some() {
-        stack([page.into(), context_menu::layer(state, palette)]).into()
-    } else {
-        page.into()
+    let mut layers = vec![page.into()];
+    if state
+        .podcasts
+        .drag
+        .as_ref()
+        .is_some_and(|gesture| gesture.armed)
+    {
+        layers.push(podcasts_view::drag_ghost(state, palette));
     }
+    if state.menu.is_some() {
+        layers.push(context_menu::layer(state, palette));
+    }
+    if layers.len() == 1 {
+        layers.pop().unwrap_or_else(|| column![].into())
+    } else {
+        stack(layers).into()
+    }
+}
+
+// ------------------------------------------------------------
+// Function: list_scroll
+// Purpose: A vertical list whose scrollbar is reserved beside
+//          the rows, so it cannot cover titles or buttons.
+// ------------------------------------------------------------
+pub fn list_scroll<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    scrollable(content)
+        .direction(scrollable::Direction::Vertical(Scrollbar::new().spacing(6)))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
 }

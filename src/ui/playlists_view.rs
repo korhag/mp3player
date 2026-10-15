@@ -4,7 +4,7 @@
 //          M3U8 playlists.
 // ------------------------------------------------------------
 
-use iced::widget::{button, column, container, mouse_area, row, scrollable, text, text_input};
+use iced::widget::{button, column, container, mouse_area, row, text, text_input};
 use iced::{Element, Length};
 
 use crate::app::{MenuTarget, Message};
@@ -50,7 +50,7 @@ pub fn view<'a>(
             ]
             .spacing(8)
             .align_y(iced::Alignment::Center),
-            scrollable(list).height(Length::Fill),
+            crate::ui::list_scroll(list),
         ]
         .spacing(12),
     )

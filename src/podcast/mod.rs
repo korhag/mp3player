@@ -5,6 +5,9 @@
 
 mod download;
 mod feed;
+mod groups;
+mod layout;
+mod positions;
 mod search;
 mod signup;
 mod store;
@@ -13,10 +16,20 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
+use iced::widget::pane_grid;
 use serde::{Deserialize, Serialize};
 
 pub use download::{download_task, episode_path, remove_download};
-pub use feed::fetch_show;
+pub use feed::{fetch_artwork, fetch_show};
+pub use groups::{
+    DragGesture, DragItem, DropSlot, DropTarget, FavoriteItem, GroupChange, container_index,
+    forget_show, group_index_of, group_with, load_groups, move_group, move_group_by, move_show,
+    reconcile, remove_from_group, rename_group, save_groups, toggle_collapsed, ungroup,
+};
+pub use layout::{PodcastPane, default_panes, load_panes, save_panes};
+pub use positions::{
+    Listening, load_listening, mark_played, note_listen, resume_point, save_listening,
+};
 pub use search::{check_key, credentials, older_episodes, search, using_environment};
 pub use signup::{SignupPlace, open_signup};
 pub use store::{load_favorites, save_favorites};
@@ -73,6 +86,9 @@ pub struct Show {
     pub title: String,
     pub author: String,
     pub image_url: Option<String>,
+    /// Plain-text summary from the feed or the directory. Empty on old caches.
+    #[serde(default)]
+    pub description: String,
     pub episodes: Vec<Episode>,
 }
 
@@ -83,10 +99,11 @@ pub struct Show {
 #[derive(Debug, Clone)]
 pub struct PodcastState {
     pub favorites: Vec<Show>,
+    pub groups: Vec<FavoriteItem>,
     pub query: String,
     pub results: Vec<Show>,
-    pub rss_input: String,
     pub selected: Option<String>,
+    pub preview: Option<Show>,
     pub key_input: String,
     pub secret_input: String,
     pub saved_key: String,
@@ -94,12 +111,26 @@ pub struct PodcastState {
     pub key_status: KeyStatus,
     pub offline: bool,
     pub older_loaded: HashSet<String>,
+    /// Download fraction, keyed by feed URL and episode guid.
     pub progress: HashMap<String, f32>,
+    pub listening: Listening,
+    pub panes: pane_grid::State<PodcastPane>,
+    pub artwork_pending: HashSet<String>,
+    pub drag: Option<DragGesture>,
+    pub drop_target: Option<DropTarget>,
+    pub episode_filter: String,
+    pub rename_group: Option<usize>,
+    pub group_rename_text: String,
+    pub selected_episode: Option<(String, String)>,
+    /// Skip writing the playhead until the track changes. Set when the
+    /// listener marks the current episode played or unplayed by hand.
+    pub resume_skip_sync: bool,
 }
 
 impl PodcastState {
     pub fn load(key: &str, secret: &str) -> Self {
         let favorites = load_favorites();
+        let groups = reconcile(load_groups(), &favorites);
         let selected = favorites.first().map(|show| show.feed_url.clone());
         let stored_key = key.trim().to_string();
         let stored_secret = secret.trim().to_string();
@@ -110,10 +141,11 @@ impl PodcastState {
         };
         Self {
             favorites,
+            groups,
             query: String::new(),
             results: Vec::new(),
-            rss_input: String::new(),
             selected,
+            preview: None,
             key_input: stored_key.clone(),
             secret_input: stored_secret.clone(),
             saved_key: stored_key,
@@ -122,12 +154,42 @@ impl PodcastState {
             offline: false,
             older_loaded: HashSet::new(),
             progress: HashMap::new(),
+            listening: load_listening(),
+            panes: load_panes(),
+            artwork_pending: HashSet::new(),
+            drag: None,
+            drop_target: None,
+            episode_filter: String::new(),
+            rename_group: None,
+            group_rename_text: String::new(),
+            selected_episode: None,
+            resume_skip_sync: false,
         }
     }
 
     pub fn selected_show(&self) -> Option<&Show> {
         let feed = self.selected.as_deref()?;
-        self.favorites.iter().find(|show| show.feed_url == feed)
+        self.find_show(feed)
+    }
+
+    // --------------------------------------------------------
+    // Method: find_show
+    // Purpose: A favorite wins over the search preview when both
+    //          exist for the same feed.
+    // --------------------------------------------------------
+    pub fn find_show(&self, feed_url: &str) -> Option<&Show> {
+        self.favorites
+            .iter()
+            .find(|show| show.feed_url == feed_url)
+            .or_else(|| {
+                self.preview
+                    .as_ref()
+                    .filter(|show| show.feed_url == feed_url)
+            })
+    }
+
+    pub fn is_favorite(&self, feed_url: &str) -> bool {
+        self.favorites.iter().any(|show| show.feed_url == feed_url)
     }
 
     pub fn favorite_mut(&mut self, feed_url: &str) -> Option<&mut Show> {
@@ -139,6 +201,39 @@ impl PodcastState {
     pub fn progress_key(feed_url: &str, guid: &str) -> String {
         format!("{feed_url}\n{guid}")
     }
+}
+
+// ------------------------------------------------------------
+// Function: feed_url
+// Purpose: The search box treats an http(s) URL as a feed to
+//          preview and anything else as a directory search.
+// ------------------------------------------------------------
+pub fn feed_url(text: &str) -> Option<String> {
+    let text = text.trim();
+    let url = reqwest::Url::parse(text).ok()?;
+    if matches!(url.scheme(), "http" | "https") {
+        Some(text.to_string())
+    } else {
+        None
+    }
+}
+
+// ------------------------------------------------------------
+// Function: plain_text
+// Purpose: Collapses a feed summary to a single readable line.
+// ------------------------------------------------------------
+pub fn plain_text(value: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for character in value.chars() {
+        match character {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(character),
+            _ => {}
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 // ------------------------------------------------------------
@@ -217,5 +312,19 @@ mod tests {
         );
         assert_eq!(merged[1].guid, "old");
         assert_eq!(merged[1].published_secs, Some(100));
+    }
+
+    #[test]
+    fn feed_url_accepts_http_and_rejects_a_search_term() {
+        assert_eq!(
+            feed_url("  https://example.com/feed.xml "),
+            Some("https://example.com/feed.xml".to_string())
+        );
+        assert_eq!(
+            feed_url("http://example.com/rss"),
+            Some("http://example.com/rss".to_string())
+        );
+        assert_eq!(feed_url("part of the problem"), None);
+        assert_eq!(feed_url("ftp://example.com/feed.xml"), None);
     }
 }

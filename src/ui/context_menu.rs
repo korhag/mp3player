@@ -61,23 +61,8 @@ fn items(state: &State, palette: AppPalette) -> Element<'_, Message> {
             ),
         ],
         MenuTarget::Episode { feed_url, guid } => episode_items(state, feed_url, guid),
-        MenuTarget::Show(feed_url) => vec![
-            (
-                "Open".to_string(),
-                Message::Podcast(crate::app::PodcastMessage::OpenShow(feed_url.clone())),
-                false,
-            ),
-            (
-                "Refresh episodes".to_string(),
-                Message::Podcast(crate::app::PodcastMessage::RefreshShow(feed_url.clone())),
-                false,
-            ),
-            (
-                "Remove from favorites".to_string(),
-                Message::Podcast(crate::app::PodcastMessage::RemoveShow(feed_url.clone())),
-                true,
-            ),
-        ],
+        MenuTarget::Show(feed_url) => show_items(state, feed_url),
+        MenuTarget::Group(index) => group_items(*index),
     };
     let mut column = column![].spacing(2);
     for (label, message, danger) in entries {
@@ -126,12 +111,30 @@ fn episode_items(state: &State, feed_url: &str, guid: &str) -> Vec<(String, Mess
         .find(|show| show.feed_url == feed_url)
         .and_then(|show| show.episodes.iter().find(|episode| episode.guid == guid))
         .and_then(|episode| episode.local_path.clone().filter(|path| path.is_file()));
+    let audio_url = state
+        .podcasts
+        .find_show(feed_url)
+        .and_then(|show| show.episodes.iter().find(|episode| episode.guid == guid))
+        .map(|episode| episode.audio_url.clone());
+    let played = audio_url
+        .as_ref()
+        .is_some_and(|url| state.podcasts.listening.played.contains(url));
     let mut entries = vec![
         (
             "Play".to_string(),
             Message::Podcast(crate::app::PodcastMessage::PlayEpisode {
                 feed_url: feed_url.to_string(),
                 guid: guid.to_string(),
+                from_start: false,
+            }),
+            false,
+        ),
+        (
+            "Play from start".to_string(),
+            Message::Podcast(crate::app::PodcastMessage::PlayEpisode {
+                feed_url: feed_url.to_string(),
+                guid: guid.to_string(),
+                from_start: true,
             }),
             false,
         ),
@@ -140,6 +143,19 @@ fn episode_items(state: &State, feed_url: &str, guid: &str) -> Vec<(String, Mess
             Message::Podcast(crate::app::PodcastMessage::QueueEpisodeNext {
                 feed_url: feed_url.to_string(),
                 guid: guid.to_string(),
+            }),
+            false,
+        ),
+        (
+            if played {
+                "Mark as unplayed".to_string()
+            } else {
+                "Mark as played".to_string()
+            },
+            Message::Podcast(crate::app::PodcastMessage::MarkPlayed {
+                feed_url: feed_url.to_string(),
+                guid: guid.to_string(),
+                played: !played,
             }),
             false,
         ),
@@ -171,6 +187,63 @@ fn episode_items(state: &State, feed_url: &str, guid: &str) -> Vec<(String, Mess
         ));
     }
     entries
+}
+
+fn show_items(state: &State, feed_url: &str) -> Vec<(String, Message, bool)> {
+    let mut entries = vec![
+        (
+            "Open".to_string(),
+            Message::Podcast(crate::app::PodcastMessage::OpenShow(feed_url.to_string())),
+            false,
+        ),
+        (
+            "Refresh episodes".to_string(),
+            Message::Podcast(crate::app::PodcastMessage::RefreshShow(
+                feed_url.to_string(),
+            )),
+            false,
+        ),
+    ];
+    if crate::podcast::group_index_of(&state.podcasts.groups, feed_url).is_some() {
+        entries.push((
+            "Remove from group".to_string(),
+            Message::Podcast(crate::app::PodcastMessage::RemoveFromGroup(
+                feed_url.to_string(),
+            )),
+            false,
+        ));
+    }
+    entries.push((
+        "Remove from favorites".to_string(),
+        Message::Podcast(crate::app::PodcastMessage::RemoveShow(feed_url.to_string())),
+        true,
+    ));
+    entries
+}
+
+fn group_items(index: usize) -> Vec<(String, Message, bool)> {
+    vec![
+        (
+            "Rename".to_string(),
+            Message::Podcast(crate::app::PodcastMessage::StartGroupRename(index)),
+            false,
+        ),
+        (
+            "Move up".to_string(),
+            Message::Podcast(crate::app::PodcastMessage::MoveGroup { index, delta: -1 }),
+            false,
+        ),
+        (
+            "Move down".to_string(),
+            Message::Podcast(crate::app::PodcastMessage::MoveGroup { index, delta: 1 }),
+            false,
+        ),
+        (
+            "Ungroup".to_string(),
+            Message::Podcast(crate::app::PodcastMessage::Ungroup(index)),
+            false,
+        ),
+    ]
 }
 
 fn entry<'a>(

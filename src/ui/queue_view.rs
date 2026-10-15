@@ -3,7 +3,7 @@
 // Purpose: The visible queue. Double-click a row to play it.
 // ------------------------------------------------------------
 
-use iced::widget::{button, column, container, mouse_area, row, scrollable, text};
+use iced::widget::{button, column, container, mouse_area, row, text};
 use iced::{Element, Length};
 
 use crate::app::{MenuTarget, Message};
@@ -61,7 +61,7 @@ pub fn view<'a>(
             text("Double-click a track to play it. Right-click for more.")
                 .size(12)
                 .color(palette.muted),
-            scrollable(rows).height(Length::Fill)
+            crate::ui::list_scroll(rows)
         ]
         .spacing(10),
     )

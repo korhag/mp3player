@@ -18,6 +18,12 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// How often the interface asks the audio thread for the playhead.
 pub const TICK: std::time::Duration = std::time::Duration::from_millis(250);
 
+/// How often a playing episode writes its position to disk.
+pub const RESUME_SAVE_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// An episode this close to its end counts as finished, not paused.
+pub const RESUME_FINISHED_MARGIN: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Extensions symphonia can decode with the `symphonia-all` feature.
 pub const EXTENSIONS: &[&str] = &[
     "mp3", "flac", "ogg", "opus", "wav", "aac", "m4a", "mp4", "alac", "aiff", "aif", "caf",
@@ -72,6 +78,18 @@ pub fn podcast_dir() -> PathBuf {
 
 pub fn favorites_path() -> PathBuf {
     podcast_dir().join("favorites.json")
+}
+
+pub fn favorite_groups_path() -> PathBuf {
+    podcast_dir().join("favorite_groups.json")
+}
+
+pub fn layout_path() -> PathBuf {
+    podcast_dir().join("layout.json")
+}
+
+pub fn positions_path() -> PathBuf {
+    podcast_dir().join("positions.json")
 }
 
 pub fn podcast_download_dir() -> PathBuf {

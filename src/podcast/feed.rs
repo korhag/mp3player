@@ -48,6 +48,7 @@ pub fn parse_rss(xml: &str, feed_url: &str) -> Result<Show, String> {
         .filter(|author| !author.is_empty())
         .unwrap_or("")
         .to_string();
+    let description = crate::podcast::plain_text(channel.description());
     let image_url = itunes
         .and_then(|ext| ext.image())
         .map(str::trim)
@@ -93,8 +94,39 @@ pub fn parse_rss(xml: &str, feed_url: &str) -> Result<Show, String> {
         title,
         author,
         image_url,
+        description,
         episodes,
     })
+}
+
+// ------------------------------------------------------------
+// Function: fetch_artwork
+// Purpose: Downloads a show image and decodes it. The window
+//          build has no image codecs, so pixels are decoded here.
+// ------------------------------------------------------------
+pub async fn fetch_artwork(url: String) -> Result<(u32, u32, Vec<u8>), String> {
+    let client = http_client()?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|error| format!("Could not load artwork: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Could not load artwork ({})", response.status()));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| format!("Could not load artwork: {error}"))?;
+    if bytes.len() > 5_000_000 {
+        return Err("Artwork is too large.".to_string());
+    }
+    let image = ::image::load_from_memory(&bytes)
+        .map_err(|error| format!("Could not read artwork: {error}"))?
+        .thumbnail(256, 256)
+        .to_rgba8();
+    let (width, height) = image.dimensions();
+    Ok((width, height, image.into_raw()))
 }
 
 fn published_secs(item: &rss::Item) -> Option<i64> {
@@ -136,6 +168,7 @@ mod tests {
         <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
           <channel>
             <title>Sample Show</title>
+            <description>A &lt;b&gt;sample&lt;/b&gt; show.</description>
             <itunes:author>Sample Host</itunes:author>
             <itunes:image href="https://example.com/art.jpg"/>
             <item>
@@ -153,6 +186,7 @@ mod tests {
         let show = parse_rss(SAMPLE, "https://example.com/feed.xml").unwrap();
         assert_eq!(show.title, "Sample Show");
         assert_eq!(show.author, "Sample Host");
+        assert_eq!(show.description, "A sample show.");
         assert_eq!(show.episodes.len(), 1);
         assert_eq!(show.episodes[0].title, "Episode One");
         assert_eq!(show.episodes[0].audio_url, "https://example.com/ep1.mp3");

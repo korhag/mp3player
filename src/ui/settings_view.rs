@@ -28,11 +28,7 @@ pub fn view(state: &State, palette: AppPalette) -> Element<'_, Message> {
     .spacing(10)
     .width(Length::Fill);
     if dirty {
-        body = body.push(
-            text("Unsaved changes")
-                .size(12)
-                .color(palette.muted),
-        );
+        body = body.push(text("Unsaved changes").size(12).color(palette.muted));
     }
     body = body.push(
         row![

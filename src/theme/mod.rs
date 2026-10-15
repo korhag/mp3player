@@ -88,9 +88,13 @@ pub fn track_row(palette: AppPalette, current: bool) -> impl Fn(&Theme) -> conta
 //          player gets a filled row and an accent outline so it
 //          can be told apart from the rest of the list.
 // ------------------------------------------------------------
-pub fn episode_row(palette: AppPalette, current: bool) -> impl Fn(&Theme) -> container::Style {
+pub fn episode_row(
+    palette: AppPalette,
+    current: bool,
+    selected: bool,
+) -> impl Fn(&Theme) -> container::Style {
     move |_theme| container::Style {
-        background: current.then_some(Background::Color(palette.surface_alt)),
+        background: (current || selected).then_some(Background::Color(palette.surface_alt)),
         text_color: Some(palette.text),
         border: Border {
             color: if current {
@@ -100,6 +104,25 @@ pub fn episode_row(palette: AppPalette, current: bool) -> impl Fn(&Theme) -> con
             },
             width: 1.0,
             radius: 8.0.into(),
+        },
+        ..Default::default()
+    }
+}
+
+// ------------------------------------------------------------
+// Function: drop_slot
+// Purpose: The insertion line shown while a favorite is dragged.
+// ------------------------------------------------------------
+pub fn drop_slot(palette: AppPalette, active: bool) -> impl Fn(&Theme) -> container::Style {
+    move |_theme| container::Style {
+        background: Some(Background::Color(if active {
+            palette.accent
+        } else {
+            palette.surface_alt
+        })),
+        border: Border {
+            radius: 4.0.into(),
+            ..Default::default()
         },
         ..Default::default()
     }

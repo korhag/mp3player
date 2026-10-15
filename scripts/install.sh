@@ -124,8 +124,11 @@ install -m 644 "$ROOT/packaging/linux/mp3player.desktop" "$HOME/.local/share/app
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$HOME/.local/share/applications" || true
 fi
+# A failed rebuild is not an install error. GTK still finds the icon
+# by scanning the folder. The shared hicolor theme often cannot be
+# cached because other apps install icons whose names contain spaces.
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-    gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" || true
+    gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" >/dev/null 2>&1 || true
 fi
 
 case ":$PATH:" in

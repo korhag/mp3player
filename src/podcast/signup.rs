@@ -5,18 +5,26 @@
 //          Their terms forbid embedding a shared secret in the app.
 // ------------------------------------------------------------
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
-use std::time::Duration;
-
 use crate::system;
 
 pub const SIGNUP_URL: &str = "https://api.podcastindex.org/signup";
 
+// The in-app window is Windows-only. These stay out of the Linux build
+// so a release compile does not warn about unused imports.
+#[cfg(windows)]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(windows)]
+use std::sync::mpsc;
+#[cfg(windows)]
+use std::time::Duration;
+
+#[cfg(windows)]
 static WINDOW_OPEN: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignupPlace {
+    /// Opened in the in-app window. Constructed on Windows only.
+    #[cfg_attr(not(windows), allow(dead_code))]
     Window,
     Browser,
 }
