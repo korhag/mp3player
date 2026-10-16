@@ -148,9 +148,9 @@ fn episode_items(state: &State, feed_url: &str, guid: &str) -> Vec<(String, Mess
         ),
         (
             if played {
-                "Mark as unplayed".to_string()
+                "Mark as not finished".to_string()
             } else {
-                "Mark as played".to_string()
+                "Mark as finished".to_string()
             },
             Message::Podcast(crate::app::PodcastMessage::MarkPlayed {
                 feed_url: feed_url.to_string(),

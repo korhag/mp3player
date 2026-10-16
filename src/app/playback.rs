@@ -24,6 +24,9 @@ impl State {
         if self.seek_drag.is_none() {
             self.position = self.reported_position(snapshot.position);
         }
+        if snapshot.generation != self.duration_generation {
+            self.learn_playback_duration(snapshot.duration);
+        }
         self.sync_listening_memory();
         let playing = snapshot.active && !snapshot.paused && !snapshot.loading;
         if playing && self.listening_saved_at.elapsed() >= config::RESUME_SAVE_EVERY {
@@ -149,6 +152,9 @@ impl State {
         self.resume_hold = (start_at > Duration::ZERO).then_some(start_at);
         self.resume_hold_since = std::time::Instant::now();
         self.podcasts.resume_skip_sync = false;
+        // Ignore a decoder length until this request replaces the snapshot.
+        // The length still published belongs to the previous track.
+        self.duration_generation = self.audio.snapshot().generation;
         if start_at > Duration::ZERO {
             self.status = format!("Resuming at {}", crate::util::format_time(start_at));
         }

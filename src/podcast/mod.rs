@@ -28,7 +28,8 @@ pub use groups::{
 };
 pub use layout::{PodcastPane, default_panes, load_panes, save_panes};
 pub use positions::{
-    Listening, load_listening, mark_played, note_listen, resume_point, save_listening,
+    ListenState, Listening, listen_state, load_listening, mark_played, note_listen, resume_point,
+    save_listening,
 };
 pub use search::{check_key, credentials, older_episodes, search, using_environment};
 pub use signup::{SignupPlace, open_signup};
@@ -122,6 +123,8 @@ pub struct PodcastState {
     pub rename_group: Option<usize>,
     pub group_rename_text: String,
     pub selected_episode: Option<(String, String)>,
+    /// The detail pane can hide the show summary and keep the episode list.
+    pub episodes_only: bool,
     /// Skip writing the playhead until the track changes. Set when the
     /// listener marks the current episode played or unplayed by hand.
     pub resume_skip_sync: bool,
@@ -163,6 +166,7 @@ impl PodcastState {
             rename_group: None,
             group_rename_text: String::new(),
             selected_episode: None,
+            episodes_only: false,
             resume_skip_sync: false,
         }
     }
@@ -270,6 +274,50 @@ pub fn merge_episodes(primary: &[Episode], extra: &[Episode]) -> Vec<Episode> {
     merged
 }
 
+// ------------------------------------------------------------
+// Function: apply_learned_duration
+// Purpose: Fills a missing episode length from the decoder.
+//          A length the feed already gave us is left alone.
+// ------------------------------------------------------------
+pub fn apply_learned_duration(current_secs: u64, learned: Option<Duration>) -> Option<u64> {
+    if current_secs > 0 {
+        return None;
+    }
+    let learned = learned?;
+    let secs = learned.as_secs();
+    (secs > 0).then_some(secs)
+}
+
+// ------------------------------------------------------------
+// Function: store_learned_duration
+// Purpose: Writes a decoder length onto cached episodes that
+//          share this audio URL and still have no length.
+//          Returns whether a favorite needs saving.
+// ------------------------------------------------------------
+pub fn store_learned_duration(
+    shows: &mut [Show],
+    audio_url: &str,
+    learned: Option<Duration>,
+) -> bool {
+    if audio_url.is_empty() {
+        return false;
+    }
+    let mut changed = false;
+    for show in shows {
+        for episode in &mut show.episodes {
+            if episode.audio_url != audio_url {
+                continue;
+            }
+            let Some(secs) = apply_learned_duration(episode.duration_secs, learned) else {
+                continue;
+            };
+            episode.duration_secs = secs;
+            changed = true;
+        }
+    }
+    changed
+}
+
 fn same_episode(left: &Episode, right: &Episode) -> bool {
     if !left.guid.is_empty() && left.guid == right.guid {
         return true;
@@ -326,5 +374,42 @@ mod tests {
         );
         assert_eq!(feed_url("part of the problem"), None);
         assert_eq!(feed_url("ftp://example.com/feed.xml"), None);
+    }
+
+    #[test]
+    fn learned_duration_fills_only_a_missing_length() {
+        let learned = Some(Duration::from_secs(3723));
+        assert_eq!(apply_learned_duration(0, learned), Some(3723));
+        assert_eq!(apply_learned_duration(90, learned), None);
+        assert_eq!(apply_learned_duration(0, None), None);
+        assert_eq!(apply_learned_duration(0, Some(Duration::ZERO)), None);
+        assert_eq!(
+            apply_learned_duration(0, Some(Duration::from_millis(400))),
+            None
+        );
+
+        let known = episode("kept", "https://example.com/kept.mp3", None);
+        let mut missing = episode("missing", "https://example.com/missing.mp3", None);
+        missing.duration_secs = 0;
+        let mut shows = vec![Show {
+            feed_url: "https://example.com/feed.xml".to_string(),
+            title: "Sample".to_string(),
+            author: String::new(),
+            image_url: None,
+            description: String::new(),
+            episodes: vec![known.clone(), missing],
+        }];
+        assert!(store_learned_duration(
+            &mut shows,
+            "https://example.com/missing.mp3",
+            learned
+        ));
+        assert_eq!(shows[0].episodes[0], known);
+        assert_eq!(shows[0].episodes[1].duration_secs, 3723);
+        assert!(!store_learned_duration(
+            &mut shows,
+            "https://example.com/missing.mp3",
+            learned
+        ));
     }
 }

@@ -18,6 +18,9 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// How often the interface asks the audio thread for the playhead.
 pub const TICK: std::time::Duration = std::time::Duration::from_millis(250);
 
+/// Loudest linear gain. 1.0 is 100%, the same level as an unamplified file.
+pub const MAX_VOLUME: f32 = 2.0;
+
 /// How often a playing episode writes its position to disk.
 pub const RESUME_SAVE_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
 

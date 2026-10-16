@@ -138,6 +138,9 @@ pub struct State {
     resume_hold_since: Instant,
     listening_saved_at: Instant,
     seen_generation: u64,
+    /// Snapshot generation already on screen when playback was requested.
+    /// A decoder length from that generation still belongs to the previous track.
+    duration_generation: u64,
     end_armed: bool,
 }
 
@@ -238,7 +241,7 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::SeekReleased => state.release_seek(),
         Message::SeekBy(delta) => state.seek_by(delta),
         Message::VolumeChanged(value) => {
-            state.volume = value.clamp(0.0, 1.0);
+            state.volume = value.clamp(0.0, config::MAX_VOLUME);
             state.audio.set_volume(state.volume);
             Task::none()
         }
@@ -247,7 +250,7 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::VolumeBy(delta) => {
-            state.volume = (state.volume + delta).clamp(0.0, 1.0);
+            state.volume = (state.volume + delta).clamp(0.0, config::MAX_VOLUME);
             state.audio.set_volume(state.volume);
             state.persist();
             Task::none()
@@ -405,7 +408,7 @@ impl State {
             rename_target: None,
             rename_text: String::new(),
             theme_id: settings.theme,
-            volume: settings.volume.clamp(0.0, 1.0),
+            volume: settings.volume.clamp(0.0, config::MAX_VOLUME),
             position: Duration::ZERO,
             seek_drag: None,
             cover: None,
@@ -424,6 +427,7 @@ impl State {
             resume_hold_since: Instant::now(),
             listening_saved_at: Instant::now(),
             seen_generation: 0,
+            duration_generation: 0,
             end_armed: false,
         }
     }

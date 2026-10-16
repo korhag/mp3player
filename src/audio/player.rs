@@ -13,7 +13,9 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use rodio::decoder::DecoderBuilder;
-use rodio::{Decoder, DeviceSinkBuilder, Player};
+use rodio::{DeviceSinkBuilder, Player, Source};
+
+use crate::config;
 
 use super::stream::{self, OpenedStream};
 
@@ -31,6 +33,8 @@ pub struct Snapshot {
     /// A stream request is in flight and audio has not started.
     pub loading: bool,
     pub error: Option<String>,
+    /// Length reported by the decoder. None when the format has no timing.
+    pub duration: Option<Duration>,
 }
 
 // ------------------------------------------------------------
@@ -71,6 +75,7 @@ impl Default for Snapshot {
             active: false,
             loading: false,
             error: None,
+            duration: None,
         }
     }
 }
@@ -108,7 +113,7 @@ impl AudioHandle {
     // Purpose: Opens the default output device and starts the
     //          audio thread. The window still opens if no device
     //          is available; playback then reports an error.
-    // Input: volume - Linear gain from 0.0 to 1.0.
+    // Input: volume - Linear gain from 0.0 to MAX_VOLUME.
     // --------------------------------------------------------
     pub fn start(volume: f32) -> Self {
         let (tx, rx) = mpsc::channel();
@@ -153,7 +158,9 @@ impl AudioHandle {
     }
 
     pub fn set_volume(&self, volume: f32) {
-        let _ = self.tx.send(Command::Volume(volume.clamp(0.0, 1.0)));
+        let _ = self
+            .tx
+            .send(Command::Volume(volume.clamp(0.0, config::MAX_VOLUME)));
     }
 
     // --------------------------------------------------------
@@ -194,6 +201,7 @@ fn audio_thread(rx: Receiver<Command>, snapshot: Arc<Mutex<Snapshot>>, mut volum
     let mut play_token = 0u64;
     let mut active = false;
     let mut error = None;
+    let mut known_duration: Option<Duration> = None;
     let mut pending: Option<PendingStream> = None;
     // Kept until the next track so the stream's download task stays alive.
     let mut stream_runtime: Option<tokio::runtime::Runtime> = None;
@@ -214,8 +222,10 @@ fn audio_thread(rx: Receiver<Command>, snapshot: Arc<Mutex<Snapshot>>, mut volum
                     pending = None;
                     finish_stream(&player, &mut stream_runtime);
                     generation += 1;
+                    known_duration = None;
                     match load_source(&player, &path, volume, start_at) {
-                        Ok(()) => {
+                        Ok(duration) => {
+                            known_duration = duration;
                             active = true;
                             error = None;
                             if start_at > Duration::ZERO {
@@ -235,6 +245,7 @@ fn audio_thread(rx: Receiver<Command>, snapshot: Arc<Mutex<Snapshot>>, mut volum
                     finish_stream(&player, &mut stream_runtime);
                     active = false;
                     error = None;
+                    known_duration = None;
                     pending = Some(spawn_stream(url, token, start_at));
                 }
                 Command::Pause => {
@@ -252,6 +263,7 @@ fn audio_thread(rx: Receiver<Command>, snapshot: Arc<Mutex<Snapshot>>, mut volum
                     player.stop();
                     active = false;
                     error = None;
+                    known_duration = None;
                 }
                 Command::Seek(position) => {
                     if player.try_seek(position).is_ok() {
@@ -268,8 +280,9 @@ fn audio_thread(rx: Receiver<Command>, snapshot: Arc<Mutex<Snapshot>>, mut volum
         if let Some((arrived, start_at)) = take_ready_stream(&mut pending, play_token) {
             match arrived {
                 Ok(opened) => match start_stream(&player, opened, volume, start_at) {
-                    Ok(runtime) => {
+                    Ok((runtime, duration)) => {
                         stream_runtime = Some(runtime);
+                        known_duration = duration;
                         generation += 1;
                         active = true;
                         error = None;
@@ -299,6 +312,7 @@ fn audio_thread(rx: Receiver<Command>, snapshot: Arc<Mutex<Snapshot>>, mut volum
             pending.is_some(),
             error.clone(),
             seek_position,
+            known_duration,
         );
     }
 }
@@ -360,7 +374,7 @@ fn start_stream(
     opened: OpenedStream,
     volume: f32,
     start_at: Duration,
-) -> Result<tokio::runtime::Runtime, String> {
+) -> Result<(tokio::runtime::Runtime, Option<Duration>), String> {
     let (reader, runtime) = opened.into_parts();
     let byte_len = reader.content_length().filter(|len| *len > 0);
     let mut builder = DecoderBuilder::new().with_data(reader);
@@ -374,6 +388,7 @@ fn start_stream(
             return Err(format!("Could not play the stream: {error}"));
         }
     };
+    let duration = reported_duration(&decoder);
     player.clear();
     player.append(decoder);
     player.set_volume(volume);
@@ -381,7 +396,7 @@ fn start_stream(
         let _ = player.try_seek(start_at);
     }
     player.play();
-    Ok(runtime)
+    Ok((runtime, duration))
 }
 
 fn load_source(
@@ -389,11 +404,21 @@ fn load_source(
     path: &std::path::Path,
     volume: f32,
     start_at: Duration,
-) -> Result<(), String> {
+) -> Result<Option<Duration>, String> {
     let file =
         File::open(path).map_err(|error| format!("Could not open {}: {error}", path.display()))?;
-    let decoder = Decoder::new(BufReader::new(file))
+    let byte_len = file.metadata().ok().and_then(|meta| {
+        let len = meta.len();
+        (len > 0).then_some(len)
+    });
+    let mut builder = DecoderBuilder::new().with_data(BufReader::new(file));
+    if let Some(byte_len) = byte_len {
+        builder = builder.with_byte_len(byte_len);
+    }
+    let decoder = builder
+        .build()
         .map_err(|error| format!("Could not play {}: {error}", path.display()))?;
+    let duration = reported_duration(&decoder);
     player.clear();
     player.append(decoder);
     player.set_volume(volume);
@@ -401,9 +426,19 @@ fn load_source(
         let _ = player.try_seek(start_at);
     }
     player.play();
-    Ok(())
+    Ok(duration)
 }
 
+// ------------------------------------------------------------
+// Function: reported_duration
+// Purpose: The decoder's length, when the format actually has one.
+//          A zero means the container did not know.
+// ------------------------------------------------------------
+fn reported_duration(decoder: &impl Source) -> Option<Duration> {
+    Source::total_duration(decoder).filter(|duration| !duration.is_zero())
+}
+
+#[allow(clippy::too_many_arguments)]
 fn publish(
     snapshot: &Mutex<Snapshot>,
     player: &Player,
@@ -412,9 +447,11 @@ fn publish(
     loading: bool,
     error: Option<String>,
     seek_position: Option<Duration>,
+    duration: Option<Duration>,
 ) {
     let mut current = snapshot.lock().unwrap_or_else(|poison| poison.into_inner());
     current.generation = generation;
+    current.duration = duration;
     current.position = seek_position.unwrap_or_else(|| {
         if active {
             player.get_pos()

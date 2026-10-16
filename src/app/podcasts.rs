@@ -74,6 +74,7 @@ pub enum PodcastMessage {
     PaneResized(pane_grid::ResizeEvent),
     ResetLayout,
     EpisodeFilterChanged(String),
+    SetEpisodesOnly(bool),
     SelectEpisode {
         feed_url: String,
         guid: String,
@@ -237,6 +238,10 @@ impl State {
                 self.podcasts.episode_filter = filter;
                 Task::none()
             }
+            PodcastMessage::SetEpisodesOnly(episodes_only) => {
+                self.podcasts.episodes_only = episodes_only;
+                Task::none()
+            }
             PodcastMessage::SelectEpisode { feed_url, guid } => {
                 self.podcasts.selected_episode = Some((feed_url, guid));
                 Task::none()
@@ -394,16 +399,9 @@ impl State {
             .preview
             .clone()
             .filter(|show| show.feed_url == feed_url)
-            .or_else(|| {
-                self.podcasts
-                    .results
-                    .iter()
-                    .find(|show| show.feed_url == feed_url)
-                    .cloned()
-            })
         else {
-            self.status = "Open the show before adding it to favorites.".to_string();
-            return Task::none();
+            self.status = "Reading the feed...".to_string();
+            return fetch_feed(feed_url, false);
         };
         self.podcasts.favorites.insert(0, show);
         self.podcasts
@@ -547,9 +545,9 @@ impl State {
         }
         self.flush_listening();
         self.status = if played {
-            "Marked as played.".to_string()
+            "Marked as finished.".to_string()
         } else {
-            "Marked as unplayed.".to_string()
+            "Marked as not finished.".to_string()
         };
         Task::none()
     }
@@ -905,6 +903,36 @@ impl State {
         episode.local_path = None;
         self.remember_favorites();
         self.status = "Removed the download.".to_string();
+    }
+
+    // --------------------------------------------------------
+    // Method: learn_playback_duration
+    // Purpose: Some feeds omit itunes:duration. Once the decoder
+    //          reports a length, the seek bar and the episode list
+    //          can use it. A length we already have is not replaced.
+    // --------------------------------------------------------
+    pub(crate) fn learn_playback_duration(&mut self, learned: Option<Duration>) {
+        let Some(track) = self.queue.current() else {
+            return;
+        };
+        let Some(secs) = podcast::apply_learned_duration(track.duration.as_secs(), learned) else {
+            return;
+        };
+        let url = track.stream_url.clone();
+        if let Some(track) = self.queue.current_mut() {
+            track.duration = Duration::from_secs(secs);
+        }
+        self.resume_duration = Duration::from_secs(secs);
+        let Some(url) = url else {
+            return;
+        };
+        let saved = podcast::store_learned_duration(&mut self.podcasts.favorites, &url, learned);
+        if let Some(preview) = self.podcasts.preview.as_mut() {
+            let _ = podcast::store_learned_duration(std::slice::from_mut(preview), &url, learned);
+        }
+        if saved {
+            self.remember_favorites();
+        }
     }
 
     fn remember_favorites(&mut self) {

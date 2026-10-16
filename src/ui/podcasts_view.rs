@@ -10,7 +10,9 @@ use iced::{Element, Length};
 
 use crate::app::{MenuTarget, Message, PodcastMessage, State};
 use crate::audio::Phase;
-use crate::podcast::{self, DragItem, DropSlot, DropTarget, Episode, FavoriteItem, Show};
+use crate::podcast::{
+    self, DragItem, DropSlot, DropTarget, Episode, FavoriteItem, ListenState, Show,
+};
 use crate::theme::{self, AppPalette};
 use crate::ui::icons::{self, icon};
 use crate::util::{format_date, format_date_span, format_time};
@@ -25,7 +27,7 @@ pub fn view(state: &State, palette: AppPalette) -> Element<'_, Message> {
 
 pub(super) fn favorites_pane(state: &State, palette: AppPalette) -> Element<'_, Message> {
     let mut body = column![]
-        .spacing(8)
+        .spacing(6)
         .height(Length::Fill)
         .width(Length::Fill);
     if state.podcasts.offline {
@@ -43,7 +45,7 @@ pub(super) fn favorites_pane(state: &State, palette: AppPalette) -> Element<'_, 
     body = body.push(text(hint).size(12).color(palette.muted));
     body = body.push(super::list_scroll(favorite_list(state, palette)));
     container(body)
-        .padding(12)
+        .padding(8)
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
@@ -51,7 +53,7 @@ pub(super) fn favorites_pane(state: &State, palette: AppPalette) -> Element<'_, 
 
 pub(super) fn search_pane(state: &State, palette: AppPalette) -> Element<'_, Message> {
     let mut body = column![key_line(state, palette), search_row(state, palette)]
-        .spacing(8)
+        .spacing(6)
         .height(Length::Fill)
         .width(Length::Fill);
     if state.podcasts.results.is_empty() {
@@ -64,7 +66,7 @@ pub(super) fn search_pane(state: &State, palette: AppPalette) -> Element<'_, Mes
         body = body.push(super::list_scroll(result_list(state, palette)));
     }
     container(body)
-        .padding(12)
+        .padding(8)
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
@@ -84,7 +86,7 @@ pub(super) fn detail_pane(state: &State, palette: AppPalette) -> Element<'_, Mes
     };
     let phase = state.audio.snapshot().phase();
     let filter = state.podcasts.episode_filter.trim().to_lowercase();
-    let mut list = column![].spacing(4);
+    let mut list = column![].spacing(2);
     let mut shown = 0usize;
     for episode in &show.episodes {
         if !filter.is_empty() && !episode.title.to_lowercase().contains(&filter) {
@@ -101,19 +103,20 @@ pub(super) fn detail_pane(state: &State, palette: AppPalette) -> Element<'_, Mes
         };
         list = list.push(text(message).size(13).color(palette.muted));
     }
-    container(
-        column![
-            episode_header(state, show, palette),
-            super::list_scroll(list)
-        ]
-        .spacing(10)
+    let mut body = column![detail_switch(state.podcasts.episodes_only, palette)]
+        .spacing(6)
         .height(Length::Fill)
-        .width(Length::Fill),
-    )
-    .padding(12)
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .into()
+        .width(Length::Fill);
+    if !state.podcasts.episodes_only {
+        body = body.push(show_summary(state, show, palette));
+    }
+    body = body.push(episode_tools(state, show, palette));
+    body = body.push(super::list_scroll(list));
+    container(body)
+        .padding(8)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
 }
 
 // ------------------------------------------------------------
@@ -190,10 +193,10 @@ fn search_row(state: &State, palette: AppPalette) -> Element<'_, Message> {
         text_input("Search shows or paste an RSS URL", &state.podcasts.query)
             .on_input(|value| Message::Podcast(PodcastMessage::QueryChanged(value)))
             .on_submit(Message::Podcast(PodcastMessage::Search))
-            .padding(8)
+            .padding(6)
             .width(Length::Fill),
-        button(text("Search").size(13).color(palette.on_accent))
-            .padding([8, 12])
+        button(text("Search").size(12).color(palette.on_accent))
+            .padding([6, 10])
             .style(theme::primary_button(palette))
             .on_press(Message::Podcast(PodcastMessage::Search)),
     ]
@@ -213,20 +216,15 @@ fn favorite_list(state: &State, palette: AppPalette) -> Element<'_, Message> {
         .drag
         .as_ref()
         .is_some_and(|gesture| gesture.armed);
-    let mut list = column![].spacing(4);
+    let mut list = column![].spacing(2);
     for (index, item) in state.podcasts.groups.iter().enumerate() {
         if dragging {
-            list = list.push(insertion_slot(
-                state,
-                DropSlot::Before(index),
-                false,
-                palette,
-            ));
+            list = list.push(insertion_slot(state, DropSlot::Before(index), palette));
         }
         match item {
             FavoriteItem::Show(feed_url) => {
                 if let Some(show) = find_favorite(state, feed_url) {
-                    list = list.push(favorite_show_row(state, show, false, palette));
+                    list = list.push(favorite_show_row(state, show, palette));
                 }
             }
             FavoriteItem::Group {
@@ -245,33 +243,33 @@ fn favorite_list(state: &State, palette: AppPalette) -> Element<'_, Message> {
                 if *collapsed {
                     continue;
                 }
-                for (inner, feed_url) in shows.iter().enumerate() {
+                let mut inner = column![].spacing(2).width(Length::Fill);
+                for (inner_index, feed_url) in shows.iter().enumerate() {
                     if dragging_show {
-                        list = list.push(insertion_slot(
+                        inner = inner.push(insertion_slot(
                             state,
                             DropSlot::InGroup {
                                 group: index,
-                                before: inner,
+                                before: inner_index,
                             },
-                            true,
                             palette,
                         ));
                     }
                     if let Some(show) = find_favorite(state, feed_url) {
-                        list = list.push(favorite_show_row(state, show, true, palette));
+                        inner = inner.push(favorite_show_row(state, show, palette));
                     }
                 }
                 if dragging_show {
-                    list = list.push(insertion_slot(
+                    inner = inner.push(insertion_slot(
                         state,
                         DropSlot::InGroup {
                             group: index,
                             before: shows.len(),
                         },
-                        true,
                         palette,
                     ));
                 }
+                list = list.push(expanded_group(inner, palette));
             }
         }
     }
@@ -279,7 +277,6 @@ fn favorite_list(state: &State, palette: AppPalette) -> Element<'_, Message> {
         list = list.push(insertion_slot(
             state,
             DropSlot::Before(state.podcasts.groups.len()),
-            false,
             palette,
         ));
     }
@@ -294,27 +291,38 @@ fn find_favorite<'a>(state: &'a State, feed_url: &str) -> Option<&'a Show> {
         .find(|show| show.feed_url == feed_url)
 }
 
-fn insertion_slot(
-    state: &State,
-    slot: DropSlot,
-    indent: bool,
-    palette: AppPalette,
-) -> Element<'_, Message> {
+fn insertion_slot(state: &State, slot: DropSlot, palette: AppPalette) -> Element<'_, Message> {
     let target = DropTarget::Slot(slot);
     let active = state.podcasts.drop_target.as_ref() == Some(&target);
-    let line = mouse_area(
+    mouse_area(
         container(iced::widget::Space::new().width(Length::Fill).height(6))
             .width(Length::Fill)
             .height(8)
             .style(theme::drop_slot(palette, active)),
     )
     .on_enter(Message::Podcast(PodcastMessage::DragTarget(target.clone())))
-    .on_exit(Message::Podcast(PodcastMessage::DragLeave(target)));
-    if indent {
-        row![iced::widget::Space::new().width(18), line].into()
-    } else {
-        line.into()
-    }
+    .on_exit(Message::Podcast(PodcastMessage::DragLeave(target)))
+    .into()
+}
+
+// ------------------------------------------------------------
+// Function: expanded_group
+// Purpose: Shows in an open group sit beside a vertical rail so
+//          the group reads as one expanded block.
+// ------------------------------------------------------------
+fn expanded_group<'a>(
+    children: iced::widget::Column<'a, Message>,
+    palette: AppPalette,
+) -> Element<'a, Message> {
+    let rail = container(iced::widget::Space::new())
+        .width(2)
+        .height(Length::Fill)
+        .style(theme::group_rail(palette));
+    row![rail, children]
+        .spacing(8)
+        .padding(iced::Padding::ZERO.top(2).bottom(2).left(12))
+        .width(Length::Fill)
+        .into()
 }
 
 fn group_header<'a>(
@@ -349,26 +357,29 @@ fn group_header<'a>(
     let hovered = state.podcasts.drop_target.as_ref() == Some(&target);
     let mark = if collapsed { "▸" } else { "▾" };
     let body = row![
-        button(text(mark).size(12).color(palette.muted))
-            .padding([4, 6])
-            .style(theme::quiet_button(palette))
-            .on_press(Message::Podcast(PodcastMessage::ToggleGroup(index))),
-        column![
-            text(name).size(14).color(palette.text),
-            text(format!(
-                "{count} {}",
-                if count == 1 { "show" } else { "shows" }
-            ))
-            .size(12)
-            .color(palette.muted),
-        ]
-        .width(Length::Fill),
+        button(
+            text(mark)
+                .size(18)
+                .width(16)
+                .align_x(iced::Alignment::Center)
+                .color(palette.muted),
+        )
+        .padding([1, 2])
+        .style(theme::quiet_button(palette))
+        .on_press(Message::Podcast(PodcastMessage::ToggleGroup(index))),
+        text(name).size(14).color(palette.text),
+        text(format!(
+            "{count} {}",
+            if count == 1 { "show" } else { "shows" }
+        ))
+        .size(12)
+        .color(palette.muted),
     ]
     .spacing(6)
     .align_y(iced::Alignment::Center);
     mouse_area(
         container(body)
-            .padding([4, 4])
+            .padding([2, 4])
             .width(Length::Fill)
             .style(theme::episode_row(palette, false, hovered)),
     )
@@ -388,7 +399,6 @@ fn group_header<'a>(
 fn favorite_show_row<'a>(
     state: &'a State,
     show: &'a Show,
-    indent: bool,
     palette: AppPalette,
 ) -> Element<'a, Message> {
     let selected = state.podcasts.selected.as_deref() == Some(show.feed_url.as_str());
@@ -396,21 +406,21 @@ fn favorite_show_row<'a>(
     let hovered = state.podcasts.drop_target.as_ref() == Some(&target);
     let mut lines = column![wrapped_title(
         &show.title,
-        14.0,
+        13.0,
         if selected {
             palette.accent
         } else {
             palette.text
         }
     )]
-    .spacing(2)
+    .spacing(0)
     .width(Length::Fill);
     if !show.author.is_empty() {
         lines = lines.push(text(&show.author).size(12).color(palette.muted));
     }
-    let row = mouse_area(
+    mouse_area(
         container(lines)
-            .padding([6, 8])
+            .padding([2, 4])
             .width(Length::Fill)
             .style(theme::episode_row(palette, selected, hovered)),
     )
@@ -422,70 +432,123 @@ fn favorite_show_row<'a>(
     .on_right_press(Message::OpenMenu(MenuTarget::Show(show.feed_url.clone())))
     .on_enter(Message::Podcast(PodcastMessage::DragTarget(target.clone())))
     .on_exit(Message::Podcast(PodcastMessage::DragLeave(target)))
-    .interaction(iced::mouse::Interaction::Grab);
-    if indent {
-        row![iced::widget::Space::new().width(18), row].into()
-    } else {
-        row.into()
-    }
+    .interaction(iced::mouse::Interaction::Grab)
+    .into()
 }
 
 fn result_list(state: &State, palette: AppPalette) -> Element<'_, Message> {
-    let mut list = column![].spacing(4);
+    let mut list = column![].spacing(2);
     for show in &state.podcasts.results {
+        let selected = state.podcasts.selected.as_deref() == Some(show.feed_url.as_str());
         list = list.push(result_row(
             show,
             state.podcasts.is_favorite(&show.feed_url),
+            selected,
             palette,
         ));
     }
     list.into()
 }
 
-fn result_row(show: &Show, saved: bool, palette: AppPalette) -> Element<'_, Message> {
+fn result_row(
+    show: &Show,
+    saved: bool,
+    selected: bool,
+    palette: AppPalette,
+) -> Element<'_, Message> {
     let marker = if saved { "Saved" } else { "Preview" };
     let marker_color = if saved { palette.accent } else { palette.muted };
-    let mut lines = column![wrapped_title(&show.title, 14.0, palette.text)]
-        .spacing(2)
+    let title_color = if selected {
+        palette.accent
+    } else {
+        palette.text
+    };
+    let mut lines = column![wrapped_title(&show.title, 13.0, title_color)]
+        .spacing(1)
         .width(Length::Fill);
     let mut meta = row![text(marker).size(12).color(marker_color)].spacing(8);
     if !show.author.is_empty() {
         meta = meta.push(text(&show.author).size(12).color(palette.muted));
     }
     lines = lines.push(meta);
-    mouse_area(
-        container(lines)
-            .padding([6, 8])
-            .width(Length::Fill)
-            .style(theme::episode_row(palette, false, false)),
-    )
-    .on_press(Message::Podcast(PodcastMessage::PreviewShow(
-        show.feed_url.clone(),
-    )))
-    .interaction(iced::mouse::Interaction::Pointer)
+    let star = if saved {
+        &icons::STAR_FILLED
+    } else {
+        &icons::STAR
+    };
+    let star_color = if saved { palette.accent } else { palette.muted };
+    let row = row![
+        mouse_area(lines)
+            .on_press(Message::Podcast(PodcastMessage::PreviewShow(
+                show.feed_url.clone(),
+            )))
+            .interaction(iced::mouse::Interaction::Pointer),
+        button(icon(star, star_color, 14.0))
+            .padding(2)
+            .style(theme::quiet_button(palette))
+            .on_press(Message::Podcast(PodcastMessage::ToggleFavorite(
+                show.feed_url.clone(),
+            ))),
+    ]
+    .spacing(4)
+    .align_y(iced::Alignment::Center)
+    .width(Length::Fill);
+    container(row)
+        .padding([2, 6])
+        .width(Length::Fill)
+        .style(theme::episode_row(palette, false, selected))
+        .into()
+}
+
+fn detail_switch(episodes_only: bool, palette: AppPalette) -> Element<'static, Message> {
+    row![
+        detail_tab("Show", false, episodes_only, palette),
+        detail_tab("Episodes", true, episodes_only, palette),
+    ]
+    .spacing(6)
     .into()
 }
 
-fn episode_header<'a>(
-    state: &'a State,
-    show: &'a Show,
+fn detail_tab(
+    label: &'static str,
+    episodes_only: bool,
+    selected_episodes_only: bool,
     palette: AppPalette,
-) -> Element<'a, Message> {
+) -> Element<'static, Message> {
+    let selected = episodes_only == selected_episodes_only;
+    let color = if selected {
+        palette.on_accent
+    } else {
+        palette.text
+    };
+    let button = button(text(label).size(12).color(color))
+        .padding([4, 10])
+        .on_press(Message::Podcast(PodcastMessage::SetEpisodesOnly(
+            episodes_only,
+        )));
+    if selected {
+        button.style(theme::primary_button(palette)).into()
+    } else {
+        button.style(theme::quiet_button(palette)).into()
+    }
+}
+
+fn show_summary<'a>(state: &'a State, show: &'a Show, palette: AppPalette) -> Element<'a, Message> {
     let favorite = state.podcasts.is_favorite(&show.feed_url);
     let art = artwork(state, show, palette);
     let mut heading = column![
         text(&show.title)
-            .size(20)
+            .size(18)
             .color(palette.text)
             .wrapping(Wrapping::WordOrGlyph),
-        text(episode_subtitle(show)).size(13).color(palette.muted),
+        text(episode_subtitle(show)).size(12).color(palette.muted),
     ]
-    .spacing(4)
+    .spacing(2)
     .width(Length::Fill);
     if !show.description.is_empty() {
         heading = heading.push(
             text(brief(&show.description))
-                .size(13)
+                .size(12)
                 .color(palette.muted)
                 .wrapping(Wrapping::WordOrGlyph),
         );
@@ -504,47 +567,52 @@ fn episode_header<'a>(
                 .color(palette.muted),
         );
     }
+    row![art, heading]
+        .spacing(10)
+        .align_y(iced::Alignment::Start)
+        .into()
+}
+
+fn episode_tools<'a>(
+    state: &'a State,
+    show: &'a Show,
+    palette: AppPalette,
+) -> Element<'a, Message> {
+    let favorite = state.podcasts.is_favorite(&show.feed_url);
     let has_key =
         podcast::credentials(&state.podcasts.saved_key, &state.podcasts.saved_secret).is_some();
     let mut tools = row![
         text_input("Filter episodes", &state.podcasts.episode_filter)
             .on_input(|value| Message::Podcast(PodcastMessage::EpisodeFilterChanged(value)))
-            .padding(8)
+            .padding(6)
             .width(Length::Fill),
     ]
-    .spacing(8)
+    .spacing(6)
     .align_y(iced::Alignment::Center);
     if favorite && has_key {
         tools = tools.push(
-            button(text("Load older episodes").size(13).color(palette.text))
-                .padding([6, 10])
+            button(text("Load older episodes").size(12).color(palette.text))
+                .padding([4, 8])
                 .style(theme::quiet_button(palette))
                 .on_press(Message::Podcast(PodcastMessage::LoadOlder(
                     show.feed_url.clone(),
                 ))),
         );
     }
-    column![
-        row![art, heading]
-            .spacing(12)
-            .align_y(iced::Alignment::Start),
-        tools
-    ]
-    .spacing(10)
-    .into()
+    tools.into()
 }
 
 fn favorite_button(show: &Show, favorite: bool, palette: AppPalette) -> Element<'_, Message> {
     let message = Message::Podcast(PodcastMessage::ToggleFavorite(show.feed_url.clone()));
     if favorite {
-        button(text("Remove from favorites").size(13).color(palette.danger))
-            .padding([6, 10])
+        button(text("Remove from favorites").size(12).color(palette.danger))
+            .padding([4, 8])
             .style(theme::danger_button(palette))
             .on_press(message)
             .into()
     } else {
-        button(text("Add to favorites").size(13).color(palette.on_accent))
-            .padding([6, 10])
+        button(text("Add to favorites").size(12).color(palette.on_accent))
+            .padding([4, 8])
             .style(theme::primary_button(palette))
             .on_press(message)
             .into()
@@ -558,14 +626,14 @@ fn artwork<'a>(state: &'a State, show: &'a Show, palette: AppPalette) -> Element
         .and_then(|url| state.artwork.get(url));
     if let Some(handle) = handle {
         iced::widget::image(handle.clone())
-            .width(64)
-            .height(64)
+            .width(52)
+            .height(52)
             .content_fit(iced::ContentFit::Cover)
             .into()
     } else {
-        container(icon(&icons::NOTE, palette.muted, 28.0))
-            .width(64)
-            .height(64)
+        container(icon(&icons::NOTE, palette.muted, 22.0))
+            .width(52)
+            .height(52)
             .align_x(iced::Alignment::Center)
             .align_y(iced::Alignment::Center)
             .into()
@@ -608,7 +676,7 @@ fn episode_row<'a>(
         .is_some_and(|(selected_feed, guid)| selected_feed == feed_url && guid == &episode.guid);
     let key = podcast::PodcastState::progress_key(feed_url, &episode.guid);
     let download = state.podcasts.progress.get(&key).copied();
-    let (status, status_color) = episode_status(state, episode, current, phase, download, palette);
+    let mark = episode_mark(state, episode, current);
     let published = episode.published_secs.map(format_date).unwrap_or_default();
     let title_color = if current {
         palette.accent
@@ -629,23 +697,26 @@ fn episode_row<'a>(
             from_start: false,
         })
     };
-    let details = row![
-        wrapped_title(&episode.title, 14.0, title_color),
-        text(status).size(12).color(status_color),
-        text(published).size(13).color(palette.muted).width(100),
+    let mut details = row![wrapped_title(&episode.title, 13.0, title_color)]
+        .spacing(6)
+        .align_y(iced::Alignment::Center)
+        .width(Length::Fill);
+    if let Some((note, note_color)) = episode_note(state, episode, current, phase, mark, palette) {
+        details = details.push(text(note).size(12).color(note_color));
+    }
+    details = details.push(text(published).size(12).color(palette.muted).width(92));
+    details = details.push(
         text(format_time(episode.duration()))
-            .size(13)
+            .size(12)
             .color(palette.muted)
-            .width(56),
-    ]
-    .spacing(8)
-    .align_y(iced::Alignment::Center)
-    .width(Length::Fill);
+            .width(52),
+    );
     let row = row![
-        button(icon(play_icon, palette.text, 14.0))
-            .padding(6)
+        button(icon(play_icon, palette.text, 13.0))
+            .padding(2)
             .style(theme::quiet_button(palette))
             .on_press(play_message),
+        listen_mark(feed_url, episode, mark, palette),
         mouse_area(details)
             .on_press(Message::Podcast(PodcastMessage::SelectEpisode {
                 feed_url: feed_url.to_string(),
@@ -663,23 +734,62 @@ fn episode_row<'a>(
             .interaction(iced::mouse::Interaction::Pointer),
         download_button(feed_url, episode, download, palette),
     ]
-    .spacing(4)
+    .spacing(2)
     .align_y(iced::Alignment::Center);
     container(row)
-        .padding([4, 8])
+        .padding([1, 6])
         .width(Length::Fill)
         .style(theme::episode_row(palette, current, selected))
         .into()
 }
 
-fn episode_status(
+fn episode_mark(state: &State, episode: &Episode, current: bool) -> ListenState {
+    let saved = podcast::listen_state(&state.podcasts.listening, &episode.audio_url);
+    if saved == ListenState::Finished {
+        return ListenState::Finished;
+    }
+    if current && state.position.as_secs_f32() >= 1.0 {
+        return ListenState::Started;
+    }
+    saved
+}
+
+fn listen_mark<'a>(
+    feed_url: &'a str,
+    episode: &'a Episode,
+    mark: ListenState,
+    palette: AppPalette,
+) -> Element<'a, Message> {
+    let (glyph, color) = match mark {
+        ListenState::Finished => ("✓", palette.accent),
+        ListenState::Started => ("●", palette.accent),
+        ListenState::New => ("○", palette.muted),
+    };
+    button(
+        text(glyph)
+            .size(13)
+            .width(14)
+            .align_x(iced::Alignment::Center)
+            .color(color),
+    )
+    .padding([1, 2])
+    .style(theme::quiet_button(palette))
+    .on_press(Message::Podcast(PodcastMessage::MarkPlayed {
+        feed_url: feed_url.to_string(),
+        guid: episode.guid.clone(),
+        played: mark != ListenState::Finished,
+    }))
+    .into()
+}
+
+fn episode_note(
     state: &State,
     episode: &Episode,
     current: bool,
     phase: Phase,
-    download: Option<f32>,
+    mark: ListenState,
     palette: AppPalette,
-) -> (String, iced::Color) {
+) -> Option<(String, iced::Color)> {
     if current {
         let label = match phase {
             Phase::Loading => "Loading...",
@@ -687,27 +797,17 @@ fn episode_status(
             Phase::Paused => "Paused",
             Phase::Stopped => "Stopped",
         };
-        return (label.to_string(), palette.accent);
+        return Some((label.to_string(), palette.accent));
     }
-    if let Some(fraction) = download {
-        return (
-            format!("{}%", (fraction * 100.0).round() as u8),
-            palette.muted,
-        );
-    }
-    if let Some(saved) = state.podcasts.listening.positions.get(&episode.audio_url) {
-        return (
+    if mark == ListenState::Started
+        && let Some(saved) = state.podcasts.listening.positions.get(&episode.audio_url)
+    {
+        return Some((
             remaining_label(episode.duration_secs, *saved),
             palette.muted,
-        );
+        ));
     }
-    if state.podcasts.listening.played.contains(&episode.audio_url) {
-        return ("Played".to_string(), palette.muted);
-    }
-    if episode.is_downloaded() {
-        return ("Downloaded".to_string(), palette.muted);
-    }
-    (String::new(), palette.muted)
+    None
 }
 
 fn remaining_label(duration_secs: u64, saved_secs: f32) -> String {
@@ -734,10 +834,10 @@ fn download_button<'a>(
             .into();
     }
     if episode.is_downloaded() {
-        return text("Saved").size(12).color(palette.muted).into();
+        return text("Saved").size(12).color(palette.accent).into();
     }
-    button(text("↓").size(14).color(palette.text))
-        .padding([6, 8])
+    button(text("↓").size(13).color(palette.text))
+        .padding([2, 6])
         .style(theme::quiet_button(palette))
         .on_press(Message::Podcast(PodcastMessage::DownloadEpisode {
             feed_url: feed_url.to_string(),

@@ -48,7 +48,7 @@ pub fn view<'a>(
         .padding(24)
         .into()
     } else {
-        let mut list = column![].spacing(4);
+        let mut list = column![].spacing(2);
         for (index, track) in tracks.iter().enumerate() {
             list = list.push(track_row(index, track, current == Some(index), palette));
         }
@@ -91,19 +91,19 @@ fn track_row<'a>(
             .color(palette.muted)
             .width(36),
         text(&track.title)
-            .size(14)
+            .size(13)
             .color(title_color)
             .width(Length::Fill),
         text(track.artist_label())
-            .size(13)
+            .size(12)
             .color(palette.muted)
-            .width(200),
+            .width(180),
         text(track.duration_label())
-            .size(13)
+            .size(12)
             .color(palette.muted)
             .width(56),
     ]
-    .spacing(8)
+    .spacing(6)
     .align_y(iced::Alignment::Center)
     .width(Length::Fill);
 
@@ -114,14 +114,14 @@ fn track_row<'a>(
             .interaction(iced::mouse::Interaction::Pointer),
         button(icon(&icons::TRASH, palette.muted, 14.0))
             .on_press(Message::RemoveIndex(index))
-            .padding(6)
+            .padding(2)
             .style(theme::danger_button(palette)),
     ]
     .spacing(4)
     .align_y(iced::Alignment::Center);
 
     container(row)
-        .padding([6, 8])
+        .padding([2, 6])
         .width(Length::Fill)
         .style(theme::track_row(palette, current))
         .into()

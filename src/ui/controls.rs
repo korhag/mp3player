@@ -9,6 +9,7 @@ use iced::widget::{button, column, container, row, slider, text};
 use iced::{Element, Length};
 
 use crate::app::Message;
+use crate::config;
 use crate::library::Track;
 use crate::queue::RepeatMode;
 use crate::theme::{self, AppPalette};
@@ -87,12 +88,14 @@ pub fn view<'a>(
         .clamp(0.0, range_end);
     let shown = Duration::from_secs_f32(seek_value);
 
+    let volume_percent = format!("{}%", (volume * 100.0).round() as u32);
     let volume_row = row![
         text("Vol").size(12).color(palette.muted),
-        slider(0.0..=1.0, volume, Message::VolumeChanged)
+        slider(0.0..=config::MAX_VOLUME, volume, Message::VolumeChanged)
             .on_release(Message::VolumeReleased)
             .step(0.01_f32)
-            .width(120),
+            .width(160),
+        text(volume_percent).size(12).color(palette.muted).width(40),
     ]
     .spacing(8)
     .align_y(iced::Alignment::Center);

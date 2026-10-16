@@ -128,6 +128,21 @@ pub fn drop_slot(palette: AppPalette, active: bool) -> impl Fn(&Theme) -> contai
     }
 }
 
+// ------------------------------------------------------------
+// Function: group_rail
+// Purpose: The vertical line beside the shows in an open group.
+// ------------------------------------------------------------
+pub fn group_rail(palette: AppPalette) -> impl Fn(&Theme) -> container::Style {
+    move |_theme| container::Style {
+        background: Some(Background::Color(palette.muted)),
+        border: Border {
+            radius: 1.0.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
 fn button_style(background: Option<Color>, text: Color) -> button::Style {
     button::Style {
         background: background.map(Background::Color),

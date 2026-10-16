@@ -98,6 +98,35 @@ pub fn note_listen(listening: &mut Listening, url: &str, position: Duration, tot
     listening.played.remove(url);
 }
 
+// ------------------------------------------------------------
+// Enum: ListenState
+// Purpose: How far the listener has got, for the episode mark.
+// ------------------------------------------------------------
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListenState {
+    New,
+    Started,
+    Finished,
+}
+
+// ------------------------------------------------------------
+// Function: listen_state
+// Purpose: Finished wins over a leftover position. A saved
+//          position means the episode was started.
+// ------------------------------------------------------------
+pub fn listen_state(listening: &Listening, url: &str) -> ListenState {
+    if url.is_empty() {
+        return ListenState::New;
+    }
+    if listening.played.contains(url) {
+        return ListenState::Finished;
+    }
+    if listening.positions.contains_key(url) {
+        return ListenState::Started;
+    }
+    ListenState::New
+}
+
 pub fn mark_played(listening: &mut Listening, url: &str, played: bool) {
     if url.is_empty() {
         return;
@@ -142,6 +171,10 @@ mod tests {
             listening.positions.get("https://example.com/ep.mp3"),
             Some(&100.0)
         );
+        assert_eq!(
+            listen_state(&listening, "https://example.com/ep.mp3"),
+            ListenState::Started
+        );
         note_listen(
             &mut listening,
             "https://example.com/ep.mp3",
@@ -150,6 +183,14 @@ mod tests {
         );
         assert!(listening.positions.is_empty());
         assert!(listening.played.contains("https://example.com/ep.mp3"));
+        assert_eq!(
+            listen_state(&listening, "https://example.com/ep.mp3"),
+            ListenState::Finished
+        );
+        assert_eq!(
+            listen_state(&Listening::default(), "https://example.com/ep.mp3"),
+            ListenState::New
+        );
     }
 
     #[test]

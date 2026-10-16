@@ -80,7 +80,7 @@ impl Settings {
                 if !settings.volume.is_finite() {
                     settings.volume = default_volume();
                 }
-                settings.volume = settings.volume.clamp(0.0, 1.0);
+                settings.volume = settings.volume.clamp(0.0, config::MAX_VOLUME);
                 settings
             }
             Err(_) => Self::default(),
@@ -156,6 +156,23 @@ mod tests {
         fs::write(&path, "{not json").unwrap();
         let fallback = Settings::load_from(&path);
         assert_eq!(fallback.theme, ThemeId::MatteBlack);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn volume_above_full_scale_round_trips_and_oversized_values_clamp() {
+        let path = temp_file();
+        let mut settings = Settings::default();
+        settings.volume = 1.5;
+        settings.save_to(&path).unwrap();
+        let loaded = Settings::load_from(&path);
+        assert!((loaded.volume - 1.5).abs() < f32::EPSILON);
+
+        let mut loud = Settings::default();
+        loud.volume = 5.0;
+        loud.save_to(&path).unwrap();
+        let clamped = Settings::load_from(&path);
+        assert!((clamped.volume - config::MAX_VOLUME).abs() < f32::EPSILON);
         let _ = fs::remove_file(path);
     }
 }
