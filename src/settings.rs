@@ -18,6 +18,27 @@ fn default_volume() -> f32 {
     0.8
 }
 
+fn default_skip_back() -> u32 {
+    15
+}
+
+fn default_skip_forward() -> u32 {
+    30
+}
+
+// ------------------------------------------------------------
+// Struct: SkipAmount
+// Purpose: A jump size the Settings pick list can display as "15 s".
+// ------------------------------------------------------------
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SkipAmount(pub u32);
+
+impl std::fmt::Display for SkipAmount {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{} s", self.0)
+    }
+}
+
 // ------------------------------------------------------------
 // Struct: Settings
 // Purpose: Everything the player restores on the next launch.
@@ -40,6 +61,10 @@ pub struct Settings {
     pub podcast_index_key: String,
     #[serde(default)]
     pub podcast_index_secret: String,
+    #[serde(default = "default_skip_back")]
+    pub skip_back_secs: u32,
+    #[serde(default = "default_skip_forward")]
+    pub skip_forward_secs: u32,
 }
 
 impl Default for Settings {
@@ -53,6 +78,8 @@ impl Default for Settings {
             queue_index: None,
             podcast_index_key: String::new(),
             podcast_index_secret: String::new(),
+            skip_back_secs: default_skip_back(),
+            skip_forward_secs: default_skip_forward(),
         }
     }
 }
@@ -81,6 +108,9 @@ impl Settings {
                     settings.volume = default_volume();
                 }
                 settings.volume = settings.volume.clamp(0.0, config::MAX_VOLUME);
+                settings.skip_back_secs = settings.skip_back_secs.clamp(1, config::MAX_SKIP_SECS);
+                settings.skip_forward_secs =
+                    settings.skip_forward_secs.clamp(1, config::MAX_SKIP_SECS);
                 settings
             }
             Err(_) => Self::default(),
@@ -129,6 +159,8 @@ mod tests {
         assert_eq!(settings.theme, ThemeId::MatteBlack);
         assert!((settings.volume - 0.8).abs() < f32::EPSILON);
         assert!(!settings.shuffle);
+        assert_eq!(settings.skip_back_secs, 15);
+        assert_eq!(settings.skip_forward_secs, 30);
         assert_eq!(settings.repeat, RepeatMode::Off);
         assert!(settings.queue.is_empty());
     }
@@ -173,6 +205,43 @@ mod tests {
         loud.save_to(&path).unwrap();
         let clamped = Settings::load_from(&path);
         assert!((clamped.volume - config::MAX_VOLUME).abs() < f32::EPSILON);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn skip_amounts_round_trip_and_out_of_range_values_clamp() {
+        let path = temp_file();
+        let mut settings = Settings::default();
+        settings.skip_back_secs = 10;
+        settings.skip_forward_secs = 60;
+        settings.save_to(&path).unwrap();
+        let loaded = Settings::load_from(&path);
+        assert_eq!(loaded.skip_back_secs, 10);
+        assert_eq!(loaded.skip_forward_secs, 60);
+
+        let mut extreme = Settings::default();
+        extreme.skip_back_secs = 0;
+        extreme.skip_forward_secs = 5000;
+        extreme.save_to(&path).unwrap();
+        let clamped = Settings::load_from(&path);
+        assert_eq!(clamped.skip_back_secs, 1);
+        assert_eq!(clamped.skip_forward_secs, config::MAX_SKIP_SECS);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn old_settings_without_skip_fields_use_the_defaults() {
+        let path = temp_file();
+        Settings::default().save_to(&path).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        let mut value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("skip_back_secs");
+        object.remove("skip_forward_secs");
+        fs::write(&path, serde_json::to_string(&value).unwrap()).unwrap();
+        let loaded = Settings::load_from(&path);
+        assert_eq!(loaded.skip_back_secs, 15);
+        assert_eq!(loaded.skip_forward_secs, 30);
         let _ = fs::remove_file(path);
     }
 }

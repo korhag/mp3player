@@ -100,8 +100,8 @@ fn map_shortcut(key: Key, modifiers: Modifiers) -> Option<Message> {
         Key::Named(Named::Space) if plain => Some(Message::TogglePlay),
         Key::Named(Named::ArrowRight) if modifiers.control() => Some(Message::Next),
         Key::Named(Named::ArrowLeft) if modifiers.control() => Some(Message::Previous),
-        Key::Named(Named::ArrowRight) if plain => Some(Message::SeekBy(5.0)),
-        Key::Named(Named::ArrowLeft) if plain => Some(Message::SeekBy(-5.0)),
+        Key::Named(Named::ArrowRight) if plain => Some(Message::SkipForward),
+        Key::Named(Named::ArrowLeft) if plain => Some(Message::SkipBack),
         Key::Named(Named::ArrowUp) if plain => Some(Message::VolumeBy(0.05)),
         Key::Named(Named::ArrowDown) if plain => Some(Message::VolumeBy(-0.05)),
         Key::Character(character) if plain && eq_letter(&character, "s") => {

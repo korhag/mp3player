@@ -65,7 +65,10 @@ pub enum Message {
     Previous,
     SeekChanged(f32),
     SeekReleased,
-    SeekBy(f32),
+    SkipBack,
+    SkipForward,
+    SkipBackChanged(crate::settings::SkipAmount),
+    SkipForwardChanged(crate::settings::SkipAmount),
     VolumeChanged(f32),
     VolumeReleased,
     VolumeBy(f32),
@@ -121,6 +124,8 @@ pub struct State {
     pub(crate) rename_text: String,
     pub(crate) theme_id: ThemeId,
     pub(crate) volume: f32,
+    pub(crate) skip_back_secs: u32,
+    pub(crate) skip_forward_secs: u32,
     pub(crate) position: Duration,
     pub(crate) seek_drag: Option<f32>,
     pub(crate) cover: Option<image::Handle>,
@@ -239,7 +244,18 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::SeekReleased => state.release_seek(),
-        Message::SeekBy(delta) => state.seek_by(delta),
+        Message::SkipBack => state.seek_by(-(state.skip_back_secs as f32)),
+        Message::SkipForward => state.seek_by(state.skip_forward_secs as f32),
+        Message::SkipBackChanged(amount) => {
+            state.skip_back_secs = amount.0.clamp(1, config::MAX_SKIP_SECS);
+            state.persist();
+            Task::none()
+        }
+        Message::SkipForwardChanged(amount) => {
+            state.skip_forward_secs = amount.0.clamp(1, config::MAX_SKIP_SECS);
+            state.persist();
+            Task::none()
+        }
         Message::VolumeChanged(value) => {
             state.volume = value.clamp(0.0, config::MAX_VOLUME);
             state.audio.set_volume(state.volume);
@@ -409,6 +425,8 @@ impl State {
             rename_text: String::new(),
             theme_id: settings.theme,
             volume: settings.volume.clamp(0.0, config::MAX_VOLUME),
+            skip_back_secs: settings.skip_back_secs,
+            skip_forward_secs: settings.skip_forward_secs,
             position: Duration::ZERO,
             seek_drag: None,
             cover: None,
@@ -443,6 +461,8 @@ impl State {
             queue_index,
             podcast_index_key: self.podcasts.saved_key.clone(),
             podcast_index_secret: self.podcasts.saved_secret.clone(),
+            skip_back_secs: self.skip_back_secs,
+            skip_forward_secs: self.skip_forward_secs,
         };
         let _ = settings.save();
         let _ = crate::podcast::save_listening(&self.podcasts.listening);

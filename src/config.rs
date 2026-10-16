@@ -21,6 +21,12 @@ pub const TICK: std::time::Duration = std::time::Duration::from_millis(250);
 /// Loudest linear gain. 1.0 is 100%, the same level as an unamplified file.
 pub const MAX_VOLUME: f32 = 2.0;
 
+/// Jump sizes offered in Settings, in seconds.
+pub const SKIP_CHOICES: [u32; 8] = [5, 10, 15, 30, 45, 60, 90, 120];
+
+/// Largest rewind or forward jump a settings file may store.
+pub const MAX_SKIP_SECS: u32 = 600;
+
 /// How often a playing episode writes its position to disk.
 pub const RESUME_SAVE_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
 

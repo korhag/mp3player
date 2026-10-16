@@ -258,11 +258,14 @@ impl State {
             .current()
             .map(|track| track.duration.as_secs_f32())
             .unwrap_or(0.0);
-        let next = (self.position.as_secs_f32() + delta).clamp(0.0, total.max(0.0));
+        let next = crate::util::skip_target(self.position.as_secs_f32(), delta, total);
         let position = Duration::from_secs_f32(next);
         self.position = position;
         self.seek_drag = None;
+        self.resume_hold = None;
         self.audio.seek(position);
+        self.sync_listening_memory();
+        self.flush_listening();
         Task::none()
     }
 

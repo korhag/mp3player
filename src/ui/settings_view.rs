@@ -4,11 +4,13 @@
 //          so saving a key is a deliberate step, not a hidden panel.
 // ------------------------------------------------------------
 
-use iced::widget::{button, column, container, row, text, text_input};
+use iced::widget::{button, column, container, pick_list, row, text, text_input};
 use iced::{Element, Length};
 
 use crate::app::{Message, PodcastMessage, State};
+use crate::config;
 use crate::podcast::{self, KeyStatus};
+use crate::settings::SkipAmount;
 use crate::theme::{self, AppPalette};
 
 pub fn view(state: &State, palette: AppPalette) -> Element<'_, Message> {
@@ -60,14 +62,58 @@ pub fn view(state: &State, palette: AppPalette) -> Element<'_, Message> {
             .size(12)
             .color(palette.muted),
     );
-    let card = container(body)
+    let podcast = container(body)
         .padding(16)
         .width(520)
         .style(theme::surface_panel(palette));
-    container(card)
+    container(column![playback_card(state, palette), podcast].spacing(12))
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
+}
+
+fn playback_card(state: &State, palette: AppPalette) -> Element<'_, Message> {
+    let choices: Vec<SkipAmount> = config::SKIP_CHOICES.into_iter().map(SkipAmount).collect();
+    let body = column![
+        text("Playback").size(20).color(palette.text),
+        skip_row(
+            "Rewind",
+            choices.clone(),
+            state.skip_back_secs,
+            Message::SkipBackChanged,
+            palette,
+        ),
+        skip_row(
+            "Forward",
+            choices,
+            state.skip_forward_secs,
+            Message::SkipForwardChanged,
+            palette,
+        ),
+    ]
+    .spacing(10)
+    .width(Length::Fill);
+    container(body)
+        .padding(16)
+        .width(520)
+        .style(theme::surface_panel(palette))
+        .into()
+}
+
+fn skip_row<'a>(
+    label: &'a str,
+    choices: Vec<SkipAmount>,
+    secs: u32,
+    on_select: impl Fn(SkipAmount) -> Message + 'a,
+    palette: AppPalette,
+) -> Element<'a, Message> {
+    row![
+        text(label).size(14).color(palette.text).width(Length::Fill),
+        pick_list(choices, Some(SkipAmount(secs)), on_select).width(120),
+    ]
+    .spacing(8)
+    .align_y(iced::Alignment::Center)
+    .into()
 }
 
 fn status_badge(status: &KeyStatus, palette: AppPalette) -> Element<'_, Message> {

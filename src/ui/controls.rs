@@ -27,6 +27,8 @@ pub fn view<'a>(
     position: Duration,
     seek_drag: Option<f32>,
     volume: f32,
+    skip_back_secs: u32,
+    skip_forward_secs: u32,
     playing: bool,
     loading: bool,
     shuffle: bool,
@@ -57,7 +59,14 @@ pub fn view<'a>(
             palette,
             false
         ),
+        skip_button(&icons::REWIND, skip_back_secs, Message::SkipBack, palette,),
         icon_button(play_icon, Message::TogglePlay, palette, false),
+        skip_button(
+            &icons::FORWARD,
+            skip_forward_secs,
+            Message::SkipForward,
+            palette,
+        ),
         icon_button(
             icon(&icons::NEXT, icon_color, 16.0),
             Message::Next,
@@ -139,6 +148,21 @@ pub fn view<'a>(
     .width(Length::Fill)
     .style(theme::surface_panel(palette))
     .into()
+}
+
+fn skip_button<'a>(
+    handle: &iced::widget::svg::Handle,
+    secs: u32,
+    message: Message,
+    palette: AppPalette,
+) -> Element<'a, Message> {
+    let content = row![
+        icon(handle, palette.text, 16.0),
+        text(secs.to_string()).size(12).color(palette.text),
+    ]
+    .spacing(2)
+    .align_y(iced::Alignment::Center);
+    icon_button(content.into(), message, palette, false)
 }
 
 fn icon_button<'a>(

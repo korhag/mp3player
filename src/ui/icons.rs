@@ -22,6 +22,10 @@ pub static PREVIOUS: LazyLock<Handle> =
     LazyLock::new(|| handle(include_bytes!("../../assets/icons/previous.svg")));
 pub static NEXT: LazyLock<Handle> =
     LazyLock::new(|| handle(include_bytes!("../../assets/icons/next.svg")));
+pub static REWIND: LazyLock<Handle> =
+    LazyLock::new(|| handle(include_bytes!("../../assets/icons/rewind.svg")));
+pub static FORWARD: LazyLock<Handle> =
+    LazyLock::new(|| handle(include_bytes!("../../assets/icons/forward.svg")));
 pub static SHUFFLE: LazyLock<Handle> =
     LazyLock::new(|| handle(include_bytes!("../../assets/icons/shuffle.svg")));
 pub static REPEAT: LazyLock<Handle> =

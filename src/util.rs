@@ -63,6 +63,16 @@ pub fn format_date_span(oldest: i64, newest: i64) -> String {
     }
 }
 
+// ------------------------------------------------------------
+// Function: skip_target
+// Purpose: Where a rewind or forward lands. Never before 0.
+//          The end is a limit only when the length is known.
+// ------------------------------------------------------------
+pub fn skip_target(position: f32, delta: f32, total: f32) -> f32 {
+    let next = (position + delta).max(0.0);
+    if total > 0.0 { next.min(total) } else { next }
+}
+
 fn calendar(secs: i64) -> Option<chrono::NaiveDate> {
     chrono::DateTime::from_timestamp(secs, 0).map(|time| time.date_naive())
 }
@@ -86,6 +96,14 @@ mod tests {
         assert_eq!(format_time(Duration::from_secs(0)), "0:00");
         assert_eq!(format_time(Duration::from_secs(65)), "1:05");
         assert_eq!(format_time(Duration::from_secs(3661)), "1:01:01");
+    }
+
+    #[test]
+    fn skip_target_stops_at_zero_and_only_at_a_known_end() {
+        assert_eq!(skip_target(10.0, -30.0, 100.0), 0.0);
+        assert_eq!(skip_target(90.0, 30.0, 100.0), 100.0);
+        assert_eq!(skip_target(40.0, 30.0, 0.0), 70.0);
+        assert_eq!(skip_target(5.0, -15.0, 0.0), 0.0);
     }
 
     #[test]

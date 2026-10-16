@@ -62,6 +62,8 @@ pub fn view(state: &State) -> Element<'_, Message> {
             state.position,
             state.seek_drag,
             state.volume,
+            state.skip_back_secs,
+            state.skip_forward_secs,
             playing,
             snapshot.loading,
             state.queue.shuffle_enabled(),
