@@ -59,7 +59,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "mp3player-favorites-{}-{nanos}.json",
+            "soundkeep-favorites-{}-{nanos}.json",
             std::process::id()
         ));
         let shows = vec![Show {

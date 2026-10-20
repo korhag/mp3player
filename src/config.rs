@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use directories::ProjectDirs;
 
 /// Window title and shortcut name.
-pub const APP_NAME: &str = "MP3Player";
+pub const APP_NAME: &str = "Soundkeep";
 
 /// Cargo.toml is the single source of truth for this string.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -40,10 +40,45 @@ pub const EXTENSIONS: &[&str] = &[
 
 /// Local-socket name. Dev and installed builds must not share one instance.
 pub const SOCKET_NAME: &str = if cfg!(debug_assertions) {
-    "mp3player-dev.sock"
+    "soundkeep-dev.sock"
 } else {
-    "mp3player.sock"
+    "soundkeep.sock"
 };
+
+// ------------------------------------------------------------
+// Function: application_folder
+// Purpose: Folder name inside the per-user data directory.
+//          Debug builds stay beside an installed copy.
+// ------------------------------------------------------------
+fn application_folder() -> &'static str {
+    if cfg!(debug_assertions) {
+        "Soundkeep-dev"
+    } else {
+        "Soundkeep"
+    }
+}
+
+// ------------------------------------------------------------
+// Function: legacy_application_folder
+// Purpose: The folder name used before the Soundkeep rename.
+// ------------------------------------------------------------
+fn legacy_application_folder() -> &'static str {
+    if cfg!(debug_assertions) {
+        "MP3Player-dev"
+    } else {
+        "MP3Player"
+    }
+}
+
+// ------------------------------------------------------------
+// Function: project_data_dir
+// Purpose: Resolves one application's local data directory.
+// ------------------------------------------------------------
+fn project_data_dir(organization: &str, application: &str) -> PathBuf {
+    ProjectDirs::from("app", organization, application)
+        .map(|dirs| dirs.data_local_dir().to_path_buf())
+        .unwrap_or_else(|| std::env::temp_dir().join(application))
+}
 
 // ------------------------------------------------------------
 // Function: data_dir
@@ -51,14 +86,31 @@ pub const SOCKET_NAME: &str = if cfg!(debug_assertions) {
 // Output: Absolute path. Created later, on first save.
 // ------------------------------------------------------------
 pub fn data_dir() -> PathBuf {
-    let folder = if cfg!(debug_assertions) {
-        "MP3Player-dev"
-    } else {
-        "MP3Player"
-    };
-    ProjectDirs::from("app", "MP3Player", folder)
-        .map(|dirs| dirs.data_local_dir().to_path_buf())
-        .unwrap_or_else(|| std::env::temp_dir().join(folder))
+    project_data_dir("Soundkeep", application_folder())
+}
+
+// ------------------------------------------------------------
+// Function: migrate_legacy_data
+// Purpose: Moves an existing MP3Player library into the Soundkeep
+//          folder the first time this build runs. A folder that
+//          already exists is left untouched. Debug and installed
+//          builds each move only their own pair of folders.
+// ------------------------------------------------------------
+pub fn migrate_legacy_data() {
+    let destination = data_dir();
+    if destination.exists() {
+        return;
+    }
+    let source = project_data_dir("MP3Player", legacy_application_folder());
+    if !source.exists() || source == destination {
+        return;
+    }
+    if let Some(parent) = destination.parent() {
+        if std::fs::create_dir_all(parent).is_err() {
+            return;
+        }
+    }
+    let _ = std::fs::rename(&source, &destination);
 }
 
 // ------------------------------------------------------------
@@ -142,6 +194,11 @@ mod tests {
                 "data dir {} should live under {}",
                 dir.display(),
                 local
+            );
+            assert!(
+                dir.to_string_lossy().contains("Soundkeep"),
+                "data dir {} should use the Soundkeep folder",
+                dir.display()
             );
         }
     }

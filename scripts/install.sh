@@ -71,7 +71,7 @@ install_packages() {
     fi
 }
 
-echo "MP3Player install"
+echo "Soundkeep install"
 echo "Project: $ROOT"
 
 if need_pkg_config; then
@@ -117,9 +117,9 @@ mkdir -p \
     "$HOME/.local/share/applications" \
     "$HOME/.local/share/icons/hicolor/256x256/apps"
 
-install -m 755 "$ROOT/target/release/mp3player" "$HOME/.local/bin/mp3player"
-install -m 644 "$ROOT/assets/icon.png" "$HOME/.local/share/icons/hicolor/256x256/apps/mp3player.png"
-install -m 644 "$ROOT/packaging/linux/mp3player.desktop" "$HOME/.local/share/applications/mp3player.desktop"
+install -m 755 "$ROOT/target/release/soundkeep" "$HOME/.local/bin/soundkeep"
+install -m 644 "$ROOT/assets/icon.png" "$HOME/.local/share/icons/hicolor/256x256/apps/soundkeep.png"
+install -m 644 "$ROOT/packaging/linux/soundkeep.desktop" "$HOME/.local/share/applications/soundkeep.desktop"
 
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$HOME/.local/share/applications" || true
@@ -140,7 +140,7 @@ case ":$PATH:" in
 esac
 
 if [[ "$SET_DEFAULT" -eq 0 ]] && [[ "$NO_PROMPT" -eq 0 ]]; then
-    if ask_yes "Make MP3Player the default player for these audio types?"; then
+    if ask_yes "Make Soundkeep the default player for these audio types?"; then
         SET_DEFAULT=1
     fi
 fi
@@ -152,11 +152,11 @@ if [[ "$SET_DEFAULT" -eq 1 ]] && command -v xdg-mime >/dev/null 2>&1; then
         audio/aac audio/mp4 audio/x-m4a audio/aiff audio/x-aiff
     )
     for mime in "${mime_types[@]}"; do
-        xdg-mime default mp3player.desktop "$mime" || true
+        xdg-mime default soundkeep.desktop "$mime" || true
     done
 fi
 
 echo
-echo "Installed MP3Player to $HOME/.local/bin/mp3player"
+echo "Installed Soundkeep to $HOME/.local/bin/soundkeep"
 echo "Open it from the application menu, or right-click an audio file and choose Open with."
 echo "To remove it, run ./scripts/uninstall.sh"

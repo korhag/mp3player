@@ -64,7 +64,7 @@ fn open_window() -> Result<(), String> {
     }
     let (tx, rx) = mpsc::channel();
     let spawned = std::thread::Builder::new()
-        .name("mp3player-signup".into())
+        .name("soundkeep-signup".into())
         .spawn(move || run_signup_window(tx));
     if spawned.is_err() {
         WINDOW_OPEN.store(false, Ordering::SeqCst);

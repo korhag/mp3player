@@ -1,0 +1,10 @@
+# Image and icon files are binary. This stops Git from rewriting
+# line endings, which would corrupt them on Windows.
+*.ico binary
+*.icns binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.bmp binary

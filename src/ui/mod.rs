@@ -54,7 +54,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     };
 
     let page = column![
-        tabs::view(state.tab, palette),
+        tabs::view(state.tab, state.theme_id, palette),
         body,
         controls::view(
             state.queue.current(),

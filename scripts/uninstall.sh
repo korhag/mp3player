@@ -26,9 +26,9 @@ for arg in "$@"; do
     esac
 done
 
-BIN="$HOME/.local/bin/mp3player"
-DESKTOP="$HOME/.local/share/applications/mp3player.desktop"
-ICON="$HOME/.local/share/icons/hicolor/256x256/apps/mp3player.png"
+BIN="$HOME/.local/bin/soundkeep"
+DESKTOP="$HOME/.local/share/applications/soundkeep.desktop"
+ICON="$HOME/.local/share/icons/hicolor/256x256/apps/soundkeep.png"
 
 DATA_DIR=""
 if [[ -x "$BIN" ]]; then
@@ -36,9 +36,9 @@ if [[ -x "$BIN" ]]; then
 fi
 if [[ -z "$DATA_DIR" ]]; then
     if [[ -n "${XDG_DATA_HOME:-}" ]]; then
-        DATA_DIR="$XDG_DATA_HOME/mp3player"
+        DATA_DIR="$XDG_DATA_HOME/soundkeep"
     else
-        DATA_DIR="$HOME/.local/share/mp3player"
+        DATA_DIR="$HOME/.local/share/soundkeep"
     fi
 fi
 
@@ -65,4 +65,4 @@ elif [[ -d "$DATA_DIR" ]]; then
     echo "Kept playlists and settings: $DATA_DIR"
 fi
 
-echo "MP3Player was removed."
+echo "Soundkeep was removed."

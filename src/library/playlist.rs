@@ -207,7 +207,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let dir =
-            std::env::temp_dir().join(format!("mp3player-playlist-{}-{nanos}", std::process::id()));
+            std::env::temp_dir().join(format!("soundkeep-playlist-{}-{nanos}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         dir
     }

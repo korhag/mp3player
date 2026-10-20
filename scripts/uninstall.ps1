@@ -22,16 +22,16 @@ $AudioExtensions = @(
     ".m4a", ".mp4", ".alac", ".aiff", ".aif", ".caf"
 )
 
-$InstallDir = Join-Path $env:LOCALAPPDATA "Programs\MP3Player"
-$Exe = Join-Path $InstallDir "mp3player.exe"
-$ProgId = "MP3Player.AudioFile"
-$AppName = "MP3Player"
+$InstallDir = Join-Path $env:LOCALAPPDATA "Programs\Soundkeep"
+$Exe = Join-Path $InstallDir "soundkeep.exe"
+$ProgId = "Soundkeep.AudioFile"
+$AppName = "Soundkeep"
 
 function Test-Interactive {
     return (-not $NoPrompt) -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
 }
 
-Get-Process -Name "mp3player" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "soundkeep" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 $dataDir = $null
 if (Test-Path $Exe) {
@@ -41,7 +41,7 @@ if (Test-Path $Exe) {
     }
 }
 if (-not $dataDir) {
-    $dataDir = Join-Path $env:LOCALAPPDATA "MP3Player\MP3Player\data"
+    $dataDir = Join-Path $env:LOCALAPPDATA "Soundkeep\Soundkeep\data"
 }
 
 if ((Test-Path $dataDir) -and -not $DeleteData -and (Test-Interactive)) {
@@ -63,13 +63,13 @@ foreach ($extension in $AudioExtensions) {
 }
 
 Remove-Item -Path "HKCU:\Software\Classes\$ProgId" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "HKCU:\Software\Classes\Applications\mp3player.exe" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "HKCU:\Software\MP3Player" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "HKCU:\Software\Classes\Applications\soundkeep.exe" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "HKCU:\Software\Soundkeep" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-ItemProperty -Path "HKCU:\Software\RegisteredApplications" -Name $AppName -ErrorAction SilentlyContinue
-Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\MP3Player" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Soundkeep" -Recurse -Force -ErrorAction SilentlyContinue
 
-$startLink = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\MP3Player.lnk"
-$desktopLink = Join-Path ([Environment]::GetFolderPath("Desktop")) "MP3Player.lnk"
+$startLink = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Soundkeep.lnk"
+$desktopLink = Join-Path ([Environment]::GetFolderPath("Desktop")) "Soundkeep.lnk"
 Remove-Item -Path $startLink -Force -ErrorAction SilentlyContinue
 Remove-Item -Path $desktopLink -Force -ErrorAction SilentlyContinue
 
@@ -84,4 +84,4 @@ if ($DeleteData -and (Test-Path $dataDir)) {
     Write-Host "Kept playlists and settings: $dataDir"
 }
 
-Write-Host "MP3Player was removed."
+Write-Host "Soundkeep was removed."

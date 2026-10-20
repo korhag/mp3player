@@ -200,7 +200,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "mp3player-positions-{}-{nanos}.json",
+            "soundkeep-positions-{}-{nanos}.json",
             std::process::id()
         ));
         let mut listening = Listening::default();

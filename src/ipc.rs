@@ -72,7 +72,7 @@ fn bind_server() -> std::io::Result<UnboundedReceiver<Vec<PathBuf>>> {
         .create_sync()?;
     let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
     thread::Builder::new()
-        .name("mp3player-ipc".into())
+        .name("soundkeep-ipc".into())
         .spawn(move || serve(listener, sender))
         .map_err(std::io::Error::other)?;
     Ok(receiver)

@@ -48,7 +48,7 @@ pub fn open_blocking(url: &str) -> Result<OpenedStream, String> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
-        .thread_name("mp3player-stream")
+        .thread_name("soundkeep-stream")
         .build()
         .map_err(|error| format!("Could not start the stream loader: {error}"))?;
     let url = url.to_string();
@@ -63,7 +63,7 @@ pub fn open_blocking(url: &str) -> Result<OpenedStream, String> {
             .map_err(|error| format!("Could not open the stream: {error}"))?;
         StreamDownload::from_stream(
             source,
-            TempStorageProvider::with_prefix_in("mp3player", cache),
+            TempStorageProvider::with_prefix_in("soundkeep", cache),
             Settings::default(),
         )
         .await

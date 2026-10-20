@@ -163,7 +163,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let dir =
-            std::env::temp_dir().join(format!("mp3player-download-{}-{nanos}", std::process::id()));
+            std::env::temp_dir().join(format!("soundkeep-download-{}-{nanos}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let destination = dir.join("episode.mp3");
         let runtime = tokio::runtime::Builder::new_current_thread()

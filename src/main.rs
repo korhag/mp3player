@@ -24,6 +24,9 @@ mod util;
 use std::path::PathBuf;
 
 fn main() -> iced::Result {
+    // Move a library saved under the old MP3Player name before any
+    // path is printed or settings are loaded.
+    config::migrate_legacy_data();
     let args: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
     if args
         .iter()

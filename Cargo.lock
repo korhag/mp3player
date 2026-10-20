@@ -3025,31 +3025,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mp3player"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "directories",
- "iced",
- "image",
- "interprocess",
- "lofty",
- "rand",
- "reqwest",
- "rfd",
- "rodio",
- "rss",
- "serde",
- "serde_json",
- "sha1_smol",
- "stream-download",
- "tao",
- "tokio",
- "winresource",
- "wry",
-]
-
-[[package]]
 name = "multiversion_no_op"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5018,6 +4993,31 @@ dependencies = [
  "web-sys",
  "windows-sys 0.61.2",
  "x11rb",
+]
+
+[[package]]
+name = "soundkeep"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "directories",
+ "iced",
+ "image",
+ "interprocess",
+ "lofty",
+ "rand",
+ "reqwest",
+ "rfd",
+ "rodio",
+ "rss",
+ "serde",
+ "serde_json",
+ "sha1_smol",
+ "stream-download",
+ "tao",
+ "tokio",
+ "winresource",
+ "wry",
 ]
 
 [[package]]

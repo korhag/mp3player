@@ -148,7 +148,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "mp3player-settings-{}-{nanos}.json",
+            "soundkeep-settings-{}-{nanos}.json",
             std::process::id()
         ))
     }

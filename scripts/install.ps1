@@ -26,9 +26,9 @@ $AudioExtensions = @(
 )
 
 $Root = Split-Path -Parent $PSScriptRoot
-$InstallDir = Join-Path $env:LOCALAPPDATA "Programs\MP3Player"
-$ProgId = "MP3Player.AudioFile"
-$AppName = "MP3Player"
+$InstallDir = Join-Path $env:LOCALAPPDATA "Programs\Soundkeep"
+$ProgId = "Soundkeep.AudioFile"
+$AppName = "Soundkeep"
 
 function Test-Interactive {
     return (-not $NoPrompt) -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
@@ -49,7 +49,7 @@ function Refresh-CargoPath {
     }
 }
 
-Write-Host "MP3Player install"
+Write-Host "Soundkeep install"
 Write-Host "Project: $Root"
 
 Refresh-CargoPath
@@ -86,7 +86,7 @@ if ($projectFree -lt 10GB) {
     if (-not $roomy) {
         throw "Need about 10 GB free to compile. Free some space and run this script again."
     }
-    $targetDir = Join-Path "$($roomy.Name):\" "mp3player-build"
+    $targetDir = Join-Path "$($roomy.Name):\" "soundkeep-build"
     Write-Host "Low disk space on ${projectDrive}:. Building in $targetDir"
 }
 New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
@@ -108,7 +108,7 @@ finally {
     Pop-Location
 }
 
-$builtExe = Join-Path $targetDir "release\mp3player.exe"
+$builtExe = Join-Path $targetDir "release\soundkeep.exe"
 if (-not (Test-Path $builtExe)) {
     throw "Build finished but $builtExe is missing."
 }
@@ -120,8 +120,8 @@ if ($cargoToml -match '(?m)^version\s*=\s*"([^"]+)"') {
 }
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-$exe = Join-Path $InstallDir "mp3player.exe"
-$icon = Join-Path $InstallDir "mp3player.ico"
+$exe = Join-Path $InstallDir "soundkeep.exe"
+$icon = Join-Path $InstallDir "soundkeep.ico"
 Copy-Item $builtExe $exe -Force
 Copy-Item (Join-Path $Root "assets\icon.ico") $icon -Force
 Copy-Item (Join-Path $PSScriptRoot "uninstall.ps1") (Join-Path $InstallDir "uninstall.ps1") -Force
@@ -142,9 +142,9 @@ function New-Shortcut([string]$ShortcutPath, [string]$Target) {
 
 $startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 New-Item -ItemType Directory -Force -Path $startMenu | Out-Null
-New-Shortcut (Join-Path $startMenu "MP3Player.lnk") $exe
+New-Shortcut (Join-Path $startMenu "Soundkeep.lnk") $exe
 if ($Desktop) {
-    New-Shortcut (Join-Path ([Environment]::GetFolderPath("Desktop")) "MP3Player.lnk") $exe
+    New-Shortcut (Join-Path ([Environment]::GetFolderPath("Desktop")) "Soundkeep.lnk") $exe
 }
 
 $command = "`"$exe`" `"%1`""
@@ -156,14 +156,14 @@ Set-Item -Path "$progPath\DefaultIcon" -Value "$icon,0"
 New-Item -Path "$progPath\shell\open\command" -Force | Out-Null
 Set-Item -Path "$progPath\shell\open\command" -Value $command
 
-$appKey = "HKCU:\Software\Classes\Applications\mp3player.exe"
+$appKey = "HKCU:\Software\Classes\Applications\soundkeep.exe"
 New-Item -Path $appKey -Force | Out-Null
 New-ItemProperty -Path $appKey -Name "FriendlyAppName" -Value $AppName -PropertyType String -Force | Out-Null
 New-Item -Path "$appKey\shell\open\command" -Force | Out-Null
 Set-Item -Path "$appKey\shell\open\command" -Value $command
 New-Item -Path "$appKey\SupportedTypes" -Force | Out-Null
 
-$capabilities = "HKCU:\Software\MP3Player\Capabilities"
+$capabilities = "HKCU:\Software\Soundkeep\Capabilities"
 New-Item -Path $capabilities -Force | Out-Null
 New-ItemProperty -Path $capabilities -Name "ApplicationName" -Value $AppName -PropertyType String -Force | Out-Null
 New-ItemProperty -Path $capabilities -Name "ApplicationDescription" -Value "Minimalist music player" -PropertyType String -Force | Out-Null
@@ -188,9 +188,9 @@ foreach ($extension in $AudioExtensions) {
 
 $registered = "HKCU:\Software\RegisteredApplications"
 New-Item -Path $registered -Force | Out-Null
-New-ItemProperty -Path $registered -Name $AppName -Value "Software\MP3Player\Capabilities" -PropertyType String -Force | Out-Null
+New-ItemProperty -Path $registered -Name $AppName -Value "Software\Soundkeep\Capabilities" -PropertyType String -Force | Out-Null
 
-$uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\MP3Player"
+$uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Soundkeep"
 New-Item -Path $uninstallKey -Force | Out-Null
 $uninstallCommand = "powershell.exe -ExecutionPolicy Bypass -File `"$InstallDir\uninstall.ps1`""
 $sizeKb = [int]((Get-Item $exe).Length / 1KB)
@@ -204,22 +204,22 @@ New-ItemProperty -Path $uninstallKey -Name "NoModify" -Value 1 -PropertyType DWo
 New-ItemProperty -Path $uninstallKey -Name "NoRepair" -Value 1 -PropertyType DWord -Force | Out-Null
 New-ItemProperty -Path $uninstallKey -Name "EstimatedSize" -Value $sizeKb -PropertyType DWord -Force | Out-Null
 
-if (-not ("Mp3PlayerShellNotify" -as [type])) {
+if (-not ("SoundkeepShellNotify" -as [type])) {
     Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
-public static class Mp3PlayerShellNotify {
+public static class SoundkeepShellNotify {
     [DllImport("shell32.dll")]
     public static extern void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);
 }
 "@
 }
 # SHCNE_ASSOCCHANGED tells Explorer to reload file associations.
-[Mp3PlayerShellNotify]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
+[SoundkeepShellNotify]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
 
 Write-Host ""
 Write-Host "Installed $AppName $version"
 Write-Host "Program: $exe"
-Write-Host "Open it from the Start Menu, or right-click an audio file -> Open with -> MP3Player."
+Write-Host "Open it from the Start Menu, or right-click an audio file -> Open with -> Soundkeep."
 Write-Host "Windows does not let an installer set the default app. Choose 'Always' once in Open with."
 Write-Host "To remove it, run scripts\uninstall.ps1"

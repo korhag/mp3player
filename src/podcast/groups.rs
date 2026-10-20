@@ -645,7 +645,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "mp3player-groups-{}-{nanos}.json",
+            "soundkeep-groups-{}-{nanos}.json",
             std::process::id()
         ));
         let items = vec![FavoriteItem::Group {

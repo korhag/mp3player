@@ -120,7 +120,7 @@ impl AudioHandle {
         let snapshot = Arc::new(Mutex::new(Snapshot::default()));
         let shared = Arc::clone(&snapshot);
         let thread = std::thread::Builder::new()
-            .name("mp3player-audio".into())
+            .name("soundkeep-audio".into())
             .spawn(move || audio_thread(rx, shared, volume))
             .ok();
         if thread.is_none() {
@@ -325,7 +325,7 @@ fn finish_stream(player: &Player, runtime: &mut Option<tokio::runtime::Runtime>)
 fn spawn_stream(url: String, token: u64, start_at: Duration) -> PendingStream {
     let (tx, rx) = mpsc::channel();
     let spawned = std::thread::Builder::new()
-        .name("mp3player-stream-loader".into())
+        .name("soundkeep-stream-loader".into())
         .spawn(move || {
             let _ = tx.send(stream::open_blocking(&url));
         });

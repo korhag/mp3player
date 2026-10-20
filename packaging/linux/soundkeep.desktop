@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=MP3Player
+Name=Soundkeep
 GenericName=Music Player
 Comment=Minimalist music player
-Exec=mp3player %F
-Icon=mp3player
+Exec=soundkeep %F
+Icon=soundkeep
 Terminal=false
 Categories=Audio;AudioVideo;Player;
 StartupNotify=true

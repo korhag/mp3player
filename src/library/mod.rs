@@ -79,7 +79,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let root =
-            std::env::temp_dir().join(format!("mp3player-scan-{}-{nanos}", std::process::id()));
+            std::env::temp_dir().join(format!("soundkeep-scan-{}-{nanos}", std::process::id()));
         let nested = root.join("album");
         fs::create_dir_all(&nested).unwrap();
         fs::write(root.join("notes.txt"), b"hello").unwrap();
