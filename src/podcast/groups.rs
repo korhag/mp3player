@@ -315,11 +315,13 @@ pub fn move_show(items: &mut Vec<FavoriteItem>, feed: &str, slot: DropSlot) -> b
 
 // ------------------------------------------------------------
 // Function: move_group
-// Purpose: Reorders a top-level group. Nested slots are ignored.
+// Purpose: Reorders a top-level group. A slot inside another
+//          group means just after that group.
 // ------------------------------------------------------------
 pub fn move_group(items: &mut Vec<FavoriteItem>, index: usize, slot: DropSlot) -> bool {
-    let DropSlot::Before(before) = slot else {
-        return false;
+    let before = match slot {
+        DropSlot::Before(before) => before,
+        DropSlot::InGroup { group, .. } => group + 1,
     };
     if !matches!(items.get(index), Some(FavoriteItem::Group { .. })) {
         return false;
@@ -726,6 +728,77 @@ mod tests {
         assert!(!gesture.armed);
         gesture.follow(15.0, 10.0);
         assert!(gesture.armed);
+    }
+
+    #[test]
+    fn drag_arms_from_the_row_press_point() {
+        // The origin is the point the row reported, not an older cursor.
+        // Two pixels from that press stays a click. Five pixels arms it.
+        let mut gesture = DragGesture::press(DragItem::Show("a".to_string()), 40.0, 80.0);
+        gesture.follow(42.0, 80.0);
+        assert!(!gesture.armed);
+        gesture.follow(40.0, 85.0);
+        assert!(gesture.armed);
+    }
+
+    #[test]
+    fn dropping_on_the_end_of_the_list_removes_a_show_from_its_group() {
+        let mut items = vec![
+            FavoriteItem::Group {
+                name: "News".to_string(),
+                collapsed: false,
+                shows: vec!["a".to_string(), "b".to_string()],
+            },
+            FavoriteItem::Show("loose".to_string()),
+        ];
+        let end = items.len();
+        assert!(move_show(&mut items, "a", DropSlot::Before(end)));
+        assert_eq!(
+            items,
+            vec![
+                FavoriteItem::Group {
+                    name: "News".to_string(),
+                    collapsed: false,
+                    shows: vec!["b".to_string()],
+                },
+                FavoriteItem::Show("loose".to_string()),
+                FavoriteItem::Show("a".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn dropping_a_group_inside_another_moves_it_after_that_group() {
+        let mut items = vec![
+            FavoriteItem::Group {
+                name: "First".to_string(),
+                collapsed: false,
+                shows: vec!["a".to_string()],
+            },
+            FavoriteItem::Group {
+                name: "Second".to_string(),
+                collapsed: false,
+                shows: vec!["b".to_string()],
+            },
+        ];
+        assert!(!move_group(
+            &mut items,
+            0,
+            DropSlot::InGroup {
+                group: 0,
+                before: 0
+            }
+        ));
+        assert!(move_group(
+            &mut items,
+            0,
+            DropSlot::InGroup {
+                group: 1,
+                before: 0
+            }
+        ));
+        assert!(matches!(&items[0], FavoriteItem::Group { name, .. } if name == "Second"));
+        assert!(matches!(&items[1], FavoriteItem::Group { name, .. } if name == "First"));
     }
 
     #[test]

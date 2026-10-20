@@ -347,10 +347,9 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::CursorMoved(position) => {
+            // Drawing the drag label only. The row under the pointer
+            // reports the coordinates that arm the drag.
             state.cursor = position;
-            if let Some(gesture) = &mut state.podcasts.drag {
-                gesture.follow(position.x, position.y);
-            }
             Task::none()
         }
         Message::OpenMenu(target) => {

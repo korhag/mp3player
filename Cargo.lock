@@ -4997,7 +4997,7 @@ dependencies = [
 
 [[package]]
 name = "soundkeep"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "chrono",
  "directories",

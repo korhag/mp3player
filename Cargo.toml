@@ -1,6 +1,6 @@
 [package]
 name = "soundkeep"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2024"
 description = "Minimalist multi-theme music player"
 publish = false

@@ -79,8 +79,8 @@ pub enum PodcastMessage {
         feed_url: String,
         guid: String,
     },
-    DragPressed { item: DragItem },
-    DragTarget(DropTarget),
+    DragPressed { item: DragItem, x: f32, y: f32 },
+    DragTarget { target: DropTarget, x: f32, y: f32 },
     DragReleased,
     ToggleGroup(usize),
     StartGroupRename(usize),
@@ -251,19 +251,18 @@ impl State {
                 self.podcasts.selected_episode = Some((feed_url, guid));
                 Task::none()
             }
-            PodcastMessage::DragPressed { item } => {
-                // The live cursor is the press point. Coordinates baked
-                // into the previous frame are already behind the pointer.
-                self.podcasts.drag =
-                    Some(DragGesture::press(item, self.cursor.x, self.cursor.y));
+            PodcastMessage::DragPressed { item, x, y } => {
+                // The row widget saw this press. The subscription cursor
+                // can still be the point from the previous move.
+                self.podcasts.drag = Some(DragGesture::press(item, x, y));
                 self.podcasts.drop_target = None;
                 Task::none()
             }
-            PodcastMessage::DragTarget(target) => {
-                // Remember the row even before the drag arms, and do not
-                // clear it when the pointer skims a gap. A later enter
-                // replaces it.
-                if self.podcasts.drag.is_some() {
+            PodcastMessage::DragTarget { target, x, y } => {
+                // The same row coordinates arm the drag and choose the
+                // slot. A gap does not clear the last slot.
+                if let Some(gesture) = &mut self.podcasts.drag {
+                    gesture.follow(x, y);
                     self.podcasts.drop_target = Some(target);
                 }
                 Task::none()

@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-10-20
+
+### Fixed
+
+- Dragging a favorite keeps the list where you scrolled. Drop a show to reorder it, group it, or take it out of a group. A short click still opens the show.
+- While a show is held, the bottom of the favorites list says "Drop here to remove from group."
+
 ## [0.1.8] - 2026-10-20
 
 ### Fixed

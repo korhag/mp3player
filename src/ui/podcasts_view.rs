@@ -274,7 +274,49 @@ fn favorite_list(state: &State, palette: AppPalette) -> Element<'_, Message> {
             }
         }
     }
+    list = list.push(remove_from_group_row(state, palette));
     list.into()
+}
+
+// ------------------------------------------------------------
+// Function: remove_from_group_row
+// Purpose: The last row of the favorites list. It is always in
+//          the tree. Its label appears while a show is held,
+//          and dropping there takes the show out of its group.
+// ------------------------------------------------------------
+fn remove_from_group_row<'a>(state: &'a State, palette: AppPalette) -> Element<'a, Message> {
+    let holding_show = state.podcasts.drag.as_ref().is_some_and(|gesture| {
+        gesture.armed && matches!(gesture.item, DragItem::Show(_))
+    });
+    let target = DropTarget::Slot(DropSlot::Before(state.podcasts.groups.len()));
+    let active = holding_show && state.podcasts.drop_target.as_ref() == Some(&target);
+    let report = state.podcasts.drag.is_some();
+    let label = if holding_show {
+        "Drop here to remove from group"
+    } else {
+        ""
+    };
+    let mut body = container(text(label).size(12).color(palette.muted))
+        .width(Length::Fill)
+        .padding(if holding_show {
+            iced::Padding::from([8, 4])
+        } else {
+            iced::Padding::ZERO
+        });
+    if holding_show {
+        body = body.style(theme::episode_row(palette, active, active));
+    } else {
+        body = body.height(Length::Fixed(0.0));
+    }
+    let slot = target;
+    band_sensor(body, report, false, None, true, move |_band, x, y| {
+        Message::Podcast(PodcastMessage::DragTarget {
+            target: slot.clone(),
+            x,
+            y,
+        })
+    })
+    .into()
 }
 
 fn find_favorite<'a>(state: &'a State, feed_url: &str) -> Option<&'a Show> {
@@ -297,7 +339,7 @@ fn drag_row<'a>(
     before: DropTarget,
     on: DropTarget,
     after: DropTarget,
-    press: Message,
+    press: DragItem,
     double_click: Option<Message>,
     right_press: Option<Message>,
     palette: AppPalette,
@@ -320,17 +362,22 @@ fn drag_row<'a>(
         edge_line(after_active, palette),
     ]
     .width(Length::Fill);
-    let sensor = band_sensor(stacked, report, halves, move |band| {
-        let target = match band {
-            DropBand::Before => before_target.clone(),
-            DropBand::On => on_target.clone(),
-            DropBand::After => after_target.clone(),
-        };
-        Message::Podcast(PodcastMessage::DragTarget(target))
-    });
-    let mut area = mouse_area(sensor)
-        .on_press(press)
-        .interaction(iced::mouse::Interaction::Grab);
+    let sensor = band_sensor(
+        stacked,
+        report,
+        halves,
+        Some(press),
+        false,
+        move |band, x, y| {
+            let target = match band {
+                DropBand::Before => before_target.clone(),
+                DropBand::On => on_target.clone(),
+                DropBand::After => after_target.clone(),
+            };
+            Message::Podcast(PodcastMessage::DragTarget { target, x, y })
+        },
+    );
+    let mut area = mouse_area(sensor).interaction(iced::mouse::Interaction::Grab);
     if let Some(message) = double_click {
         area = area.on_double_click(message);
     }
@@ -370,27 +417,43 @@ fn reorder_by_halves(state: &State, before: &DropTarget) -> bool {
 
 // ------------------------------------------------------------
 // Struct: BandSensor
-// Purpose: Reports the drop band under the pointer using the
-//          row's real height. It does not take the press.
+// Purpose: Reports the press and the drop band from the pointer
+//          position inside this row. It does not capture the
+//          press, so double-click and right-click still fire.
 // ------------------------------------------------------------
 struct BandSensor<'a> {
     content: Element<'a, Message>,
     report: bool,
     halves: bool,
-    on_band: Box<dyn Fn(DropBand) -> Message + 'a>,
+    on_press: Option<Box<dyn Fn(f32, f32) -> Message + 'a>>,
+    on_band: Box<dyn Fn(DropBand, f32, f32) -> Message + 'a>,
+    report_release: bool,
 }
 
 fn band_sensor<'a>(
     content: impl Into<Element<'a, Message>>,
     report: bool,
     halves: bool,
-    on_band: impl Fn(DropBand) -> Message + 'a,
+    press: Option<DragItem>,
+    report_release: bool,
+    on_band: impl Fn(DropBand, f32, f32) -> Message + 'a,
 ) -> BandSensor<'a> {
+    let on_press = press.map(|item| {
+        Box::new(move |x: f32, y: f32| {
+            Message::Podcast(PodcastMessage::DragPressed {
+                item: item.clone(),
+                x,
+                y,
+            })
+        }) as Box<dyn Fn(f32, f32) -> Message + 'a>
+    });
     BandSensor {
         content: content.into(),
         report,
         halves,
+        on_press,
         on_band: Box::new(on_band),
+        report_release,
     }
 }
 
@@ -450,18 +513,43 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for BandSensor<'a> {
         self.content.as_widget_mut().update(
             tree, event, layout, cursor, renderer, clipboard, shell, viewport,
         );
-        if !self.report || shell.is_event_captured() {
-            return;
-        }
-        if !matches!(event, Event::Mouse(mouse::Event::CursorMoved { .. })) {
+        if shell.is_event_captured() {
             return;
         }
         let bounds = layout.bounds();
-        let Some(position) = cursor.position_in(bounds) else {
-            return;
-        };
-        let band = podcast::drop_zone(position.y, bounds.height, self.halves);
-        shell.publish((self.on_band)(band));
+        match event {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let Some(on_press) = self.on_press.as_ref() else {
+                    return;
+                };
+                let Some(position) = cursor.position() else {
+                    return;
+                };
+                if !bounds.contains(position) {
+                    return;
+                }
+                shell.publish(on_press(position.x, position.y));
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+                if self.report_release =>
+            {
+                // Every row sees the release. Only the last row
+                // reports it, including when the pointer has left
+                // the list, so the drop still lands.
+                shell.publish(Message::Podcast(PodcastMessage::DragReleased));
+            }
+            Event::Mouse(mouse::Event::CursorMoved { .. }) if self.report => {
+                let Some(local) = cursor.position_in(bounds) else {
+                    return;
+                };
+                let Some(position) = cursor.position() else {
+                    return;
+                };
+                let band = podcast::drop_zone(local.y, bounds.height, self.halves);
+                shell.publish((self.on_band)(band, position.x, position.y));
+            }
+            _ => {}
+        }
     }
 
     fn draw(
@@ -634,6 +722,14 @@ fn group_header<'a>(
         .into();
     }
     let on = DropTarget::OnGroup(index);
+    let after = if collapsed {
+        DropTarget::Slot(DropSlot::Before(index + 1))
+    } else {
+        DropTarget::Slot(DropSlot::InGroup {
+            group: index,
+            before: 0,
+        })
+    };
     let hovered = state.podcasts.drop_target.as_ref() == Some(&on);
     let mark = if collapsed { "▸" } else { "▾" };
     let body = row![
@@ -666,10 +762,8 @@ fn group_header<'a>(
             .into(),
         DropTarget::Slot(DropSlot::Before(index)),
         on,
-        DropTarget::Slot(DropSlot::Before(index + 1)),
-        Message::Podcast(PodcastMessage::DragPressed {
-            item: DragItem::Group(index),
-        }),
+        after,
+        DragItem::Group(index),
         Some(Message::Podcast(PodcastMessage::StartGroupRename(index))),
         Some(Message::OpenMenu(MenuTarget::Group(index))),
         palette,
@@ -710,9 +804,7 @@ fn favorite_show_row<'a>(
         DropTarget::Slot(before),
         on,
         DropTarget::Slot(after),
-        Message::Podcast(PodcastMessage::DragPressed {
-            item: DragItem::Show(show.feed_url.clone()),
-        }),
+        DragItem::Show(show.feed_url.clone()),
         Some(Message::Podcast(PodcastMessage::OpenShow(
             show.feed_url.clone(),
         ))),

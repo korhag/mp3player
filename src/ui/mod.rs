@@ -91,11 +91,10 @@ pub fn view(state: &State) -> Element<'_, Message> {
     if state.menu.is_some() {
         layers.push(context_menu::layer(state, palette));
     }
-    if layers.len() == 1 {
-        layers.pop().unwrap_or_else(|| column![].into())
-    } else {
-        stack(layers).into()
-    }
+    // The root stays a stack even when nothing floats over the page.
+    // Swapping the page in as a plain container rebuilds every widget
+    // under it, and the favorites list jumps back to the top.
+    stack(layers).into()
 }
 
 // ------------------------------------------------------------
