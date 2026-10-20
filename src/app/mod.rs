@@ -25,6 +25,7 @@ use crate::settings::Settings;
 use crate::theme::{self, ThemeId};
 use crate::ui;
 
+pub use crate::settings::Tab;
 pub use menu::{MenuState, MenuTarget};
 pub use podcasts::PodcastMessage;
 
@@ -44,13 +45,6 @@ pub enum LoadMode {
     Restore {
         index: Option<usize>,
     },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tab {
-    Library,
-    Podcasts,
-    Settings,
 }
 
 // ------------------------------------------------------------
@@ -131,6 +125,8 @@ pub struct State {
     pub(crate) cover: Option<image::Handle>,
     pub(crate) status: String,
     pub(crate) tab: Tab,
+    /// Last favorite feed. A search preview does not replace it.
+    pub(crate) saved_show: String,
     pub(crate) cursor: Point,
     pub(crate) menu: Option<MenuState>,
     pub(crate) podcasts: PodcastState,
@@ -182,16 +178,9 @@ fn window_settings() -> window::Settings {
 }
 
 fn window_icon() -> Option<window::Icon> {
-    let reader = ::image::ImageReader::new(std::io::Cursor::new(include_bytes!(
-        "../../assets/icon.png"
-    )))
-    .with_guessed_format()
-    .ok()?;
-    let image = reader.decode().ok()?;
-    let rgba = image.to_rgba8();
-    let width = rgba.width();
-    let height = rgba.height();
-    icon::from_rgba(rgba.into_raw(), width, height).ok()
+    // Windows rejects the full-size PNG. 32px is the title-bar size.
+    let pixels = crate::system::icon_pixels(32)?;
+    icon::from_rgba(pixels, 32, 32).ok()
 }
 
 fn boot() -> (State, Task<Message>) {
@@ -397,6 +386,7 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::SetTab(tab) => {
             state.menu = None;
             state.tab = tab;
+            state.persist();
             Task::none()
         }
         Message::Podcast(message) => state.podcast(message),
@@ -411,11 +401,31 @@ fn subscription(_state: &State) -> Subscription<Message> {
     ])
 }
 
+// ------------------------------------------------------------
+// Function: restore_podcasts
+// Purpose: Loads saved shows and reopens the last favorite.
+//          An unknown feed falls back to the first favorite.
+// ------------------------------------------------------------
+fn restore_podcasts(settings: &Settings) -> PodcastState {
+    let mut podcasts =
+        PodcastState::load(&settings.podcast_index_key, &settings.podcast_index_secret);
+    if podcasts.is_favorite(&settings.selected_show) {
+        podcasts.selected = Some(settings.selected_show.clone());
+    }
+    podcasts
+}
+
 impl State {
     fn from_settings(settings: &Settings) -> Self {
         let mut queue = Queue::new();
         queue.set_shuffle(settings.shuffle);
         queue.set_repeat(settings.repeat);
+        let podcasts = restore_podcasts(settings);
+        let saved_show = podcasts
+            .selected
+            .clone()
+            .filter(|feed| podcasts.is_favorite(feed))
+            .unwrap_or_default();
         Self {
             audio: AudioHandle::start(settings.volume),
             queue,
@@ -431,13 +441,11 @@ impl State {
             seek_drag: None,
             cover: None,
             status: String::new(),
-            tab: Tab::Library,
+            tab: settings.tab,
+            saved_show,
             cursor: Point::ORIGIN,
             menu: None,
-            podcasts: PodcastState::load(
-                &settings.podcast_index_key,
-                &settings.podcast_index_secret,
-            ),
+            podcasts,
             artwork: HashMap::new(),
             resume_url: None,
             resume_duration: Duration::ZERO,
@@ -463,6 +471,8 @@ impl State {
             podcast_index_secret: self.podcasts.saved_secret.clone(),
             skip_back_secs: self.skip_back_secs,
             skip_forward_secs: self.skip_forward_secs,
+            tab: self.tab,
+            selected_show: self.saved_show.clone(),
         };
         let _ = settings.save();
         let _ = crate::podcast::save_listening(&self.podcasts.listening);

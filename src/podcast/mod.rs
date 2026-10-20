@@ -22,8 +22,10 @@ use serde::{Deserialize, Serialize};
 pub use download::{download_task, episode_path, remove_download};
 pub use feed::{fetch_artwork, fetch_show};
 pub use groups::{
-    DragGesture, DragItem, DropSlot, DropTarget, FavoriteItem, GroupChange, container_index,
-    forget_show, group_index_of, group_with, load_groups, move_group, move_group_by, move_show,
+    DragGesture, DragItem, DropBand, DropSlot, DropTarget, FavoriteItem, GroupChange,
+    container_index, drop_is_noop, drop_zone, forget_show, group_index_of, group_with,
+    load_groups,
+    move_group, move_group_by, move_show,
     reconcile, remove_from_group, rename_group, save_groups, toggle_collapsed, ungroup,
 };
 pub use layout::{PodcastPane, default_panes, load_panes, save_panes};

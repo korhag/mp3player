@@ -113,9 +113,13 @@ pub fn episode_row(
 // Function: drop_slot
 // Purpose: The insertion line shown while a favorite is dragged.
 // ------------------------------------------------------------
-pub fn drop_slot(palette: AppPalette, active: bool) -> impl Fn(&Theme) -> container::Style {
+pub fn drop_slot(
+    palette: AppPalette,
+    shown: bool,
+    active: bool,
+) -> impl Fn(&Theme) -> container::Style {
     move |_theme| container::Style {
-        background: Some(Background::Color(if active {
+        background: shown.then_some(Background::Color(if active {
             palette.accent
         } else {
             palette.surface_alt
@@ -199,6 +203,39 @@ pub fn danger_button(palette: AppPalette) -> impl Fn(&Theme, button::Status) -> 
             _ => None,
         };
         button_style(background, palette.danger)
+    }
+}
+
+// ------------------------------------------------------------
+// Function: play_button
+// Purpose: Play and pause. A little larger than the other
+//          transport buttons, on a fill just off the bar color.
+// ------------------------------------------------------------
+pub fn play_button(palette: AppPalette) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_theme, status| {
+        let amount = match status {
+            button::Status::Hovered | button::Status::Pressed => 0.18,
+            _ => 0.10,
+        };
+        let mut style = button_style(
+            Some(shift_toward(palette.surface, palette.text, amount)),
+            palette.text,
+        );
+        style.border.radius = 10.0.into();
+        style
+    }
+}
+
+// ------------------------------------------------------------
+// Function: shift_toward
+// Purpose: Moves a color a short way toward another color.
+// ------------------------------------------------------------
+fn shift_toward(base: Color, target: Color, amount: f32) -> Color {
+    Color {
+        r: base.r + (target.r - base.r) * amount,
+        g: base.g + (target.g - base.g) * amount,
+        b: base.b + (target.b - base.b) * amount,
+        a: 1.0,
     }
 }
 

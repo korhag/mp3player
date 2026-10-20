@@ -21,11 +21,7 @@ struct LogoPixels {
     pixels: Vec<u8>,
 }
 
-pub fn view(
-    selected: Tab,
-    theme_id: ThemeId,
-    palette: AppPalette,
-) -> Element<'static, Message> {
+pub fn view(selected: Tab, theme_id: ThemeId, palette: AppPalette) -> Element<'static, Message> {
     row![
         logo(theme_id),
         row![
@@ -63,7 +59,9 @@ fn logo(theme_id: ThemeId) -> Element<'static, Message> {
 // ------------------------------------------------------------
 fn logo_handle(theme_id: ThemeId) -> image::Handle {
     static CACHE: Mutex<Option<(ThemeId, image::Handle)>> = Mutex::new(None);
-    let mut cache = CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut cache = CACHE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some((cached_id, handle)) = cache.as_ref() {
         if *cached_id == theme_id {
             return handle.clone();

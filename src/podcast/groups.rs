@@ -57,6 +57,55 @@ pub enum DropTarget {
     Slot(DropSlot),
 }
 
+// ------------------------------------------------------------
+// Enum: DropBand
+// Purpose: Which part of a favorite row the pointer is on.
+//          The edges reorder. The middle groups or joins.
+// ------------------------------------------------------------
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropBand {
+    Before,
+    On,
+    After,
+}
+
+// ------------------------------------------------------------
+// Function: drop_zone
+// Purpose: The edges reorder. When `halves` is set, the row is
+//          split in two so a show already in this group can be
+//          placed before or after the row under the pointer.
+// ------------------------------------------------------------
+pub fn drop_zone(local_y: f32, height: f32, halves: bool) -> DropBand {
+    if height <= 0.0 {
+        return DropBand::On;
+    }
+    if halves {
+        if local_y < height / 2.0 {
+            DropBand::Before
+        } else {
+            DropBand::After
+        }
+    } else {
+        let edge = (height * 0.33).min(height / 3.0);
+        if local_y <= edge {
+            DropBand::Before
+        } else if local_y >= height - edge {
+            DropBand::After
+        } else {
+            DropBand::On
+        }
+    }
+}
+
+// ------------------------------------------------------------
+// Function: drop_is_noop
+// Purpose: True when moving this show to the slot would leave
+//          it where it already is. That release is a click.
+// ------------------------------------------------------------
+pub fn drop_is_noop(items: &[FavoriteItem], feed: &str, slot: DropSlot) -> bool {
+    locate(items, feed).is_some_and(|from| same_place(&from, slot))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DragItem {
     Show(String),
@@ -186,8 +235,9 @@ pub fn reconcile(items: Vec<FavoriteItem>, favorites: &[Show]) -> Vec<FavoriteIt
 // ------------------------------------------------------------
 // Function: group_with
 // Purpose: Drops `dragged` onto `target`. Two loose shows become
-//          "New group". A show dropped on a grouped show joins
-//          that group.
+//          "New group". A show dropped on a grouped show is
+//          inserted at that show. Two shows already in the same
+//          group swap places instead of joining again.
 // ------------------------------------------------------------
 pub fn group_with(
     items: &mut Vec<FavoriteItem>,
@@ -198,18 +248,28 @@ pub fn group_with(
         return None;
     }
     match locate(items, target)? {
-        Located::Grouped { group, .. } => {
-            let len = group_len(items, group)?;
-            let moved = move_show(items, dragged, DropSlot::InGroup { group, before: len });
+        Located::Grouped { group, index: to } => {
+            let before = match locate(items, dragged)? {
+                Located::Grouped {
+                    group: from_group,
+                    index: from_index,
+                } if from_group == group => {
+                    if from_index < to { to + 1 } else { to }
+                }
+                _ => to,
+            };
+            if !move_show(
+                items,
+                dragged,
+                DropSlot::InGroup { group, before },
+            ) {
+                return None;
+            }
             let group = match locate(items, target) {
                 Some(Located::Grouped { group, .. }) => group,
                 _ => return None,
             };
-            if moved || locate(items, dragged).is_some() {
-                Some(GroupChange::Joined(group))
-            } else {
-                None
-            }
+            Some(GroupChange::Joined(group))
         }
         Located::Loose(_) => {
             detach(items, dragged);
@@ -346,13 +406,6 @@ pub fn group_index_of(items: &[FavoriteItem], feed: &str) -> Option<usize> {
 pub fn container_index(items: &[FavoriteItem], feed: &str) -> Option<usize> {
     match locate(items, feed)? {
         Located::Loose(index) | Located::Grouped { group: index, .. } => Some(index),
-    }
-}
-
-fn group_len(items: &[FavoriteItem], group: usize) -> Option<usize> {
-    match items.get(group) {
-        Some(FavoriteItem::Group { shows, .. }) => Some(shows.len()),
-        _ => None,
     }
 }
 
@@ -543,9 +596,35 @@ mod tests {
             vec![FavoriteItem::Group {
                 name: "News".to_string(),
                 collapsed: false,
-                shows: vec!["a".to_string(), "b".to_string(), "loose".to_string()],
+                shows: vec!["a".to_string(), "loose".to_string(), "b".to_string()],
             }]
         );
+    }
+
+    #[test]
+    fn group_with_reorders_inside_the_same_group() {
+        let mut items = vec![FavoriteItem::Group {
+            name: "News".to_string(),
+            collapsed: false,
+            shows: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+        }];
+        assert_eq!(
+            group_with(&mut items, "c", "a"),
+            Some(GroupChange::Joined(0))
+        );
+        assert_eq!(group_shows(&items), vec!["c", "a", "b"]);
+        assert_eq!(
+            group_with(&mut items, "c", "b"),
+            Some(GroupChange::Joined(0))
+        );
+        assert_eq!(group_shows(&items), vec!["a", "b", "c"]);
+    }
+
+    fn group_shows(items: &[FavoriteItem]) -> Vec<&str> {
+        match &items[0] {
+            FavoriteItem::Group { shows, .. } => shows.iter().map(String::as_str).collect(),
+            FavoriteItem::Show(_) => Vec::new(),
+        }
     }
 
     #[test]
@@ -627,6 +706,17 @@ mod tests {
         );
         assert!(ungroup(&mut items, 0));
         assert_eq!(items, loose(&["b", "c", "a", "d"]));
+    }
+
+    #[test]
+    fn drop_band_splits_a_row_into_top_middle_and_bottom() {
+        assert_eq!(drop_zone(0.0, 40.0, false), DropBand::Before);
+        assert_eq!(drop_zone(5.0, 40.0, false), DropBand::Before);
+        assert_eq!(drop_zone(20.0, 40.0, false), DropBand::On);
+        assert_eq!(drop_zone(35.0, 40.0, false), DropBand::After);
+        assert_eq!(drop_zone(5.0, 0.0, false), DropBand::On);
+        assert_eq!(drop_zone(10.0, 40.0, true), DropBand::Before);
+        assert_eq!(drop_zone(30.0, 40.0, true), DropBand::After);
     }
 
     #[test]

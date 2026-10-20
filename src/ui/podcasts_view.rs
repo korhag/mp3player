@@ -4,14 +4,18 @@
 //          drawn inside the podcast pane grid.
 // ------------------------------------------------------------
 
+use iced::advanced::widget::tree;
+use iced::advanced::widget::{Tree, Widget};
+use iced::advanced::renderer::{self, Renderer as _};
+use iced::advanced::{Clipboard, Layout, Shell, layout, mouse};
 use iced::widget::text::Wrapping;
 use iced::widget::{button, column, container, mouse_area, row, text, text_input};
-use iced::{Element, Length};
+use iced::{Element, Event, Length, Point, Rectangle, Size, Vector};
 
 use crate::app::{MenuTarget, Message, PodcastMessage, State};
 use crate::audio::Phase;
 use crate::podcast::{
-    self, DragItem, DropSlot, DropTarget, Episode, FavoriteItem, ListenState, Show,
+    self, DragItem, DropBand, DropSlot, DropTarget, Episode, FavoriteItem, ListenState, Show,
 };
 use crate::theme::{self, AppPalette};
 use crate::ui::icons::{self, icon};
@@ -37,11 +41,7 @@ pub(super) fn favorites_pane(state: &State, palette: AppPalette) -> Element<'_, 
                 .color(palette.muted),
         );
     }
-    let hint = if state.podcasts.favorites.is_empty() {
-        "Favorite a show to keep its episodes."
-    } else {
-        "Drag shows onto each other to group them."
-    };
+    let hint = favorite_hint(state);
     body = body.push(text(hint).size(12).color(palette.muted));
     body = body.push(super::list_scroll(favorite_list(state, palette)));
     container(body)
@@ -119,13 +119,38 @@ pub(super) fn detail_pane(state: &State, palette: AppPalette) -> Element<'_, Mes
         .into()
 }
 
+fn favorite_hint(state: &State) -> String {
+    let Some(gesture) = state.podcasts.drag.as_ref().filter(|gesture| gesture.armed) else {
+        return if state.podcasts.favorites.is_empty() {
+            "Favorite a show to keep its episodes.".to_string()
+        } else {
+            "Drag the top or bottom of a row to reorder. Drop on the middle to group.".to_string()
+        };
+    };
+    let name = match &gesture.item {
+        DragItem::Show(feed_url) => state
+            .podcasts
+            .favorites
+            .iter()
+            .find(|show| &show.feed_url == feed_url)
+            .map(|show| show.title.clone())
+            .unwrap_or_else(|| "Show".to_string()),
+        DragItem::Group(index) => match state.podcasts.groups.get(*index) {
+            Some(FavoriteItem::Group { name, .. }) => name.clone(),
+            _ => "Group".to_string(),
+        },
+    };
+    format!("Moving {name}")
+}
+
 // ------------------------------------------------------------
 // Function: drag_ghost
-// Purpose: A label that follows the pointer while a favorite
-//          or a group is being dragged. It does not take clicks.
+// Purpose: The name of the favorite under the pointer. Drawing
+//          it does not take the pointer, so the rows underneath
+//          still receive the drop.
 // ------------------------------------------------------------
 pub fn drag_ghost(state: &State, palette: AppPalette) -> Element<'_, Message> {
-    let Some(gesture) = state.podcasts.drag.as_ref() else {
+    let Some(gesture) = state.podcasts.drag.as_ref().filter(|gesture| gesture.armed) else {
         return column![].into();
     };
     let label = match &gesture.item {
@@ -141,22 +166,13 @@ pub fn drag_ghost(state: &State, palette: AppPalette) -> Element<'_, Message> {
             _ => "Group".to_string(),
         },
     };
-    let panel = container(text(label).size(13).color(palette.text))
+    let pill = container(text(label).size(13).color(palette.text))
         .padding([6, 10])
         .style(theme::surface_panel(palette));
-    container(
-        column![
-            iced::widget::Space::new().height(Length::Fixed((state.cursor.y + 14.0).max(0.0))),
-            row![
-                iced::widget::Space::new().width(Length::Fixed((state.cursor.x + 14.0).max(0.0))),
-                panel,
-            ],
-        ]
-        .width(Length::Shrink)
-        .height(Length::Shrink),
-    )
-    .width(Length::Fill)
-    .height(Length::Fill)
+    GhostOverlay {
+        content: pill.into(),
+        cursor: state.cursor,
+    }
     .into()
 }
 
@@ -206,25 +222,18 @@ fn search_row(state: &State, palette: AppPalette) -> Element<'_, Message> {
 }
 
 fn favorite_list(state: &State, palette: AppPalette) -> Element<'_, Message> {
-    let dragging_show = state
-        .podcasts
-        .drag
-        .as_ref()
-        .is_some_and(|gesture| gesture.armed && matches!(gesture.item, DragItem::Show(_)));
-    let dragging = state
-        .podcasts
-        .drag
-        .as_ref()
-        .is_some_and(|gesture| gesture.armed);
     let mut list = column![].spacing(2);
     for (index, item) in state.podcasts.groups.iter().enumerate() {
-        if dragging {
-            list = list.push(insertion_slot(state, DropSlot::Before(index), palette));
-        }
         match item {
             FavoriteItem::Show(feed_url) => {
                 if let Some(show) = find_favorite(state, feed_url) {
-                    list = list.push(favorite_show_row(state, show, palette));
+                    list = list.push(favorite_show_row(
+                        state,
+                        show,
+                        DropSlot::Before(index),
+                        DropSlot::Before(index + 1),
+                        palette,
+                    ));
                 }
             }
             FavoriteItem::Group {
@@ -245,40 +254,25 @@ fn favorite_list(state: &State, palette: AppPalette) -> Element<'_, Message> {
                 }
                 let mut inner = column![].spacing(2).width(Length::Fill);
                 for (inner_index, feed_url) in shows.iter().enumerate() {
-                    if dragging_show {
-                        inner = inner.push(insertion_slot(
+                    if let Some(show) = find_favorite(state, feed_url) {
+                        inner = inner.push(favorite_show_row(
                             state,
+                            show,
                             DropSlot::InGroup {
                                 group: index,
                                 before: inner_index,
                             },
+                            DropSlot::InGroup {
+                                group: index,
+                                before: inner_index + 1,
+                            },
                             palette,
                         ));
                     }
-                    if let Some(show) = find_favorite(state, feed_url) {
-                        inner = inner.push(favorite_show_row(state, show, palette));
-                    }
-                }
-                if dragging_show {
-                    inner = inner.push(insertion_slot(
-                        state,
-                        DropSlot::InGroup {
-                            group: index,
-                            before: shows.len(),
-                        },
-                        palette,
-                    ));
                 }
                 list = list.push(expanded_group(inner, palette));
             }
         }
-    }
-    if dragging {
-        list = list.push(insertion_slot(
-            state,
-            DropSlot::Before(state.podcasts.groups.len()),
-            palette,
-        ));
     }
     list.into()
 }
@@ -291,18 +285,304 @@ fn find_favorite<'a>(state: &'a State, feed_url: &str) -> Option<&'a Show> {
         .find(|show| show.feed_url == feed_url)
 }
 
-fn insertion_slot(state: &State, slot: DropSlot, palette: AppPalette) -> Element<'_, Message> {
-    let target = DropTarget::Slot(slot);
-    let active = state.podcasts.drop_target.as_ref() == Some(&target);
-    mouse_area(
-        container(iced::widget::Space::new().width(Length::Fill).height(6))
-            .width(Length::Fill)
-            .height(8)
-            .style(theme::drop_slot(palette, active)),
-    )
-    .on_enter(Message::Podcast(PodcastMessage::DragTarget(target.clone())))
-    .on_exit(Message::Podcast(PodcastMessage::DragLeave(target)))
-    .into()
+// ------------------------------------------------------------
+// Function: drag_row
+// Purpose: A favorite row. The pointer position inside the row
+//          chooses reorder or group, and the row stays in the
+//          tree so the choice is not lost when the drag starts.
+// ------------------------------------------------------------
+fn drag_row<'a>(
+    state: &'a State,
+    body: Element<'a, Message>,
+    before: DropTarget,
+    on: DropTarget,
+    after: DropTarget,
+    press: Message,
+    double_click: Option<Message>,
+    right_press: Option<Message>,
+    palette: AppPalette,
+) -> Element<'a, Message> {
+    let dragging = state
+        .podcasts
+        .drag
+        .as_ref()
+        .is_some_and(|gesture| gesture.armed);
+    let before_active = dragging && state.podcasts.drop_target.as_ref() == Some(&before);
+    let after_active = dragging && state.podcasts.drop_target.as_ref() == Some(&after);
+    let report = state.podcasts.drag.is_some();
+    let halves = reorder_by_halves(state, &before);
+    let before_target = before;
+    let on_target = on;
+    let after_target = after;
+    let stacked = column![
+        edge_line(before_active, palette),
+        body,
+        edge_line(after_active, palette),
+    ]
+    .width(Length::Fill);
+    let sensor = band_sensor(stacked, report, halves, move |band| {
+        let target = match band {
+            DropBand::Before => before_target.clone(),
+            DropBand::On => on_target.clone(),
+            DropBand::After => after_target.clone(),
+        };
+        Message::Podcast(PodcastMessage::DragTarget(target))
+    });
+    let mut area = mouse_area(sensor)
+        .on_press(press)
+        .interaction(iced::mouse::Interaction::Grab);
+    if let Some(message) = double_click {
+        area = area.on_double_click(message);
+    }
+    if let Some(message) = right_press {
+        area = area.on_right_press(message);
+    }
+    area.into()
+}
+
+fn edge_line(active: bool, palette: AppPalette) -> Element<'static, Message> {
+    container(iced::widget::Space::new().width(Length::Fill).height(4))
+        .width(Length::Fill)
+        .height(4)
+        .style(theme::drop_slot(palette, active, active))
+        .into()
+}
+
+// ------------------------------------------------------------
+// Function: reorder_by_halves
+// Purpose: A show already in this group uses the whole row.
+//          The top half inserts before it and the bottom half
+//          inserts after it.
+// ------------------------------------------------------------
+fn reorder_by_halves(state: &State, before: &DropTarget) -> bool {
+    let DropTarget::Slot(DropSlot::InGroup { group, .. }) = before else {
+        return false;
+    };
+    let Some(DragItem::Show(feed)) = state.podcasts.drag.as_ref().map(|gesture| &gesture.item)
+    else {
+        return false;
+    };
+    match state.podcasts.groups.get(*group) {
+        Some(FavoriteItem::Group { shows, .. }) => shows.iter().any(|url| url == feed),
+        _ => false,
+    }
+}
+
+// ------------------------------------------------------------
+// Struct: BandSensor
+// Purpose: Reports the drop band under the pointer using the
+//          row's real height. It does not take the press.
+// ------------------------------------------------------------
+struct BandSensor<'a> {
+    content: Element<'a, Message>,
+    report: bool,
+    halves: bool,
+    on_band: Box<dyn Fn(DropBand) -> Message + 'a>,
+}
+
+fn band_sensor<'a>(
+    content: impl Into<Element<'a, Message>>,
+    report: bool,
+    halves: bool,
+    on_band: impl Fn(DropBand) -> Message + 'a,
+) -> BandSensor<'a> {
+    BandSensor {
+        content: content.into(),
+        report,
+        halves,
+        on_band: Box::new(on_band),
+    }
+}
+
+impl<'a> Widget<Message, iced::Theme, iced::Renderer> for BandSensor<'a> {
+    fn tag(&self) -> tree::Tag {
+        self.content.as_widget().tag()
+    }
+
+    fn state(&self) -> tree::State {
+        self.content.as_widget().state()
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        self.content.as_widget().children()
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        self.content.as_widget().diff(tree);
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &iced::Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.content.as_widget_mut().layout(tree, renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &iced::Renderer,
+        operation: &mut dyn iced::advanced::widget::Operation,
+    ) {
+        self.content
+            .as_widget_mut()
+            .operate(tree, layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &iced::Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget_mut().update(
+            tree, event, layout, cursor, renderer, clipboard, shell, viewport,
+        );
+        if !self.report || shell.is_event_captured() {
+            return;
+        }
+        if !matches!(event, Event::Mouse(mouse::Event::CursorMoved { .. })) {
+            return;
+        }
+        let bounds = layout.bounds();
+        let Some(position) = cursor.position_in(bounds) else {
+            return;
+        };
+        let band = podcast::drop_zone(position.y, bounds.height, self.halves);
+        shell.publish((self.on_band)(band));
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut iced::Renderer,
+        theme: &iced::Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.content
+            .as_widget()
+            .draw(tree, renderer, theme, style, layout, cursor, viewport);
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &iced::Renderer,
+    ) -> mouse::Interaction {
+        self.content
+            .as_widget()
+            .mouse_interaction(tree, layout, cursor, viewport, renderer)
+    }
+}
+
+impl<'a> From<BandSensor<'a>> for Element<'a, Message> {
+    fn from(sensor: BandSensor<'a>) -> Self {
+        Element::new(sensor)
+    }
+}
+
+// ------------------------------------------------------------
+// Struct: GhostOverlay
+// Purpose: Draws the dragged name beside the pointer. It never
+//          handles the pointer, so the list under it stays live.
+// ------------------------------------------------------------
+struct GhostOverlay<'a> {
+    content: Element<'a, Message>,
+    cursor: Point,
+}
+
+impl<'a> Widget<Message, iced::Theme, iced::Renderer> for GhostOverlay<'a> {
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &iced::Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        let child = self.content.as_widget_mut().layout(
+            &mut tree.children[0],
+            renderer,
+            &layout::Limits::new(Size::ZERO, limits.max()),
+        );
+        layout::Node::with_children(limits.max(), vec![child])
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut iced::Renderer,
+        theme: &iced::Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let Some(child) = layout.children().next() else {
+            return;
+        };
+        let child_bounds = child.bounds();
+        let translation = Vector::new(
+            self.cursor.x + 14.0 - child_bounds.x,
+            self.cursor.y + 14.0 - child_bounds.y,
+        );
+        renderer.with_translation(translation, |renderer| {
+            self.content.as_widget().draw(
+                &tree.children[0],
+                renderer,
+                theme,
+                style,
+                child,
+                cursor,
+                viewport,
+            );
+        });
+    }
+
+    fn mouse_interaction(
+        &self,
+        _tree: &Tree,
+        _layout: Layout<'_>,
+        _cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+        _renderer: &iced::Renderer,
+    ) -> mouse::Interaction {
+        mouse::Interaction::None
+    }
+}
+
+impl<'a> From<GhostOverlay<'a>> for Element<'a, Message> {
+    fn from(overlay: GhostOverlay<'a>) -> Self {
+        Element::new(overlay)
+    }
 }
 
 // ------------------------------------------------------------
@@ -353,8 +633,8 @@ fn group_header<'a>(
         .align_y(iced::Alignment::Center)
         .into();
     }
-    let target = DropTarget::OnGroup(index);
-    let hovered = state.podcasts.drop_target.as_ref() == Some(&target);
+    let on = DropTarget::OnGroup(index);
+    let hovered = state.podcasts.drop_target.as_ref() == Some(&on);
     let mark = if collapsed { "▸" } else { "▾" };
     let body = row![
         button(
@@ -377,33 +657,35 @@ fn group_header<'a>(
     ]
     .spacing(6)
     .align_y(iced::Alignment::Center);
-    mouse_area(
+    drag_row(
+        state,
         container(body)
             .padding([2, 4])
             .width(Length::Fill)
-            .style(theme::episode_row(palette, false, hovered)),
+            .style(theme::episode_row(palette, hovered, hovered))
+            .into(),
+        DropTarget::Slot(DropSlot::Before(index)),
+        on,
+        DropTarget::Slot(DropSlot::Before(index + 1)),
+        Message::Podcast(PodcastMessage::DragPressed {
+            item: DragItem::Group(index),
+        }),
+        Some(Message::Podcast(PodcastMessage::StartGroupRename(index))),
+        Some(Message::OpenMenu(MenuTarget::Group(index))),
+        palette,
     )
-    .on_press(Message::Podcast(PodcastMessage::DragPressed {
-        item: DragItem::Group(index),
-        x: state.cursor.x,
-        y: state.cursor.y,
-    }))
-    .on_double_click(Message::Podcast(PodcastMessage::StartGroupRename(index)))
-    .on_right_press(Message::OpenMenu(MenuTarget::Group(index)))
-    .on_enter(Message::Podcast(PodcastMessage::DragTarget(target.clone())))
-    .on_exit(Message::Podcast(PodcastMessage::DragLeave(target)))
-    .interaction(iced::mouse::Interaction::Grab)
-    .into()
 }
 
 fn favorite_show_row<'a>(
     state: &'a State,
     show: &'a Show,
+    before: DropSlot,
+    after: DropSlot,
     palette: AppPalette,
 ) -> Element<'a, Message> {
     let selected = state.podcasts.selected.as_deref() == Some(show.feed_url.as_str());
-    let target = DropTarget::OnShow(show.feed_url.clone());
-    let hovered = state.podcasts.drop_target.as_ref() == Some(&target);
+    let on = DropTarget::OnShow(show.feed_url.clone());
+    let hovered = state.podcasts.drop_target.as_ref() == Some(&on);
     let mut lines = column![wrapped_title(
         &show.title,
         13.0,
@@ -418,22 +700,25 @@ fn favorite_show_row<'a>(
     if !show.author.is_empty() {
         lines = lines.push(text(&show.author).size(12).color(palette.muted));
     }
-    mouse_area(
+    drag_row(
+        state,
         container(lines)
             .padding([2, 4])
             .width(Length::Fill)
-            .style(theme::episode_row(palette, selected, hovered)),
+            .style(theme::episode_row(palette, selected || hovered, hovered))
+            .into(),
+        DropTarget::Slot(before),
+        on,
+        DropTarget::Slot(after),
+        Message::Podcast(PodcastMessage::DragPressed {
+            item: DragItem::Show(show.feed_url.clone()),
+        }),
+        Some(Message::Podcast(PodcastMessage::OpenShow(
+            show.feed_url.clone(),
+        ))),
+        Some(Message::OpenMenu(MenuTarget::Show(show.feed_url.clone()))),
+        palette,
     )
-    .on_press(Message::Podcast(PodcastMessage::DragPressed {
-        item: DragItem::Show(show.feed_url.clone()),
-        x: state.cursor.x,
-        y: state.cursor.y,
-    }))
-    .on_right_press(Message::OpenMenu(MenuTarget::Show(show.feed_url.clone())))
-    .on_enter(Message::Podcast(PodcastMessage::DragTarget(target.clone())))
-    .on_exit(Message::Podcast(PodcastMessage::DragLeave(target)))
-    .interaction(iced::mouse::Interaction::Grab)
-    .into()
 }
 
 fn result_list(state: &State, palette: AppPalette) -> Element<'_, Message> {

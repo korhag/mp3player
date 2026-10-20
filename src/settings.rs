@@ -1,7 +1,8 @@
 // ------------------------------------------------------------
 // Module: settings
-// Purpose: Persists theme, volume, shuffle, repeat, and the last
-//          queue as JSON in the per-user data folder.
+// Purpose: Persists theme, volume, shuffle, repeat, the last
+//          queue, and the last open tab as JSON in the per-user
+//          data folder.
 // ------------------------------------------------------------
 
 use std::fs;
@@ -40,6 +41,18 @@ impl std::fmt::Display for SkipAmount {
 }
 
 // ------------------------------------------------------------
+// Enum: Tab
+// Purpose: The page open when the window was last closed.
+// ------------------------------------------------------------
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Tab {
+    #[default]
+    Library,
+    Podcasts,
+    Settings,
+}
+
+// ------------------------------------------------------------
 // Struct: Settings
 // Purpose: Everything the player restores on the next launch.
 // ------------------------------------------------------------
@@ -65,6 +78,11 @@ pub struct Settings {
     pub skip_back_secs: u32,
     #[serde(default = "default_skip_forward")]
     pub skip_forward_secs: u32,
+    #[serde(default)]
+    pub tab: Tab,
+    // Feed URL of the last open favorite. Empty picks the first favorite.
+    #[serde(default)]
+    pub selected_show: String,
 }
 
 impl Default for Settings {
@@ -80,6 +98,8 @@ impl Default for Settings {
             podcast_index_secret: String::new(),
             skip_back_secs: default_skip_back(),
             skip_forward_secs: default_skip_forward(),
+            tab: Tab::Library,
+            selected_show: String::new(),
         }
     }
 }
@@ -163,6 +183,8 @@ mod tests {
         assert_eq!(settings.skip_forward_secs, 30);
         assert_eq!(settings.repeat, RepeatMode::Off);
         assert!(settings.queue.is_empty());
+        assert_eq!(settings.tab, Tab::Library);
+        assert!(settings.selected_show.is_empty());
     }
 
     #[test]
@@ -232,16 +254,39 @@ mod tests {
     #[test]
     fn old_settings_without_skip_fields_use_the_defaults() {
         let path = temp_file();
-        Settings::default().save_to(&path).unwrap();
+        let mut settings = Settings::default();
+        settings.volume = 0.3;
+        settings.save_to(&path).unwrap();
         let text = fs::read_to_string(&path).unwrap();
         let mut value: serde_json::Value = serde_json::from_str(&text).unwrap();
         let object = value.as_object_mut().unwrap();
         object.remove("skip_back_secs");
         object.remove("skip_forward_secs");
+        object.remove("tab");
+        object.remove("selected_show");
         fs::write(&path, serde_json::to_string(&value).unwrap()).unwrap();
         let loaded = Settings::load_from(&path);
         assert_eq!(loaded.skip_back_secs, 15);
         assert_eq!(loaded.skip_forward_secs, 30);
+        assert_eq!(loaded.tab, Tab::Library);
+        assert!(loaded.selected_show.is_empty());
+        assert!((loaded.volume - 0.3).abs() < f32::EPSILON);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn last_tab_and_show_round_trip() {
+        let path = temp_file();
+        let mut settings = Settings::default();
+        settings.tab = Tab::Podcasts;
+        settings.selected_show = "https://example.com/feed.xml".to_string();
+        settings.volume = 0.5;
+        settings.save_to(&path).unwrap();
+
+        let loaded = Settings::load_from(&path);
+        assert_eq!(loaded.tab, Tab::Podcasts);
+        assert_eq!(loaded.selected_show, "https://example.com/feed.xml");
+        assert!((loaded.volume - 0.5).abs() < f32::EPSILON);
         let _ = fs::remove_file(path);
     }
 }

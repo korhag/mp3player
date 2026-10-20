@@ -79,13 +79,8 @@ pub enum PodcastMessage {
         feed_url: String,
         guid: String,
     },
-    DragPressed {
-        item: DragItem,
-        x: f32,
-        y: f32,
-    },
+    DragPressed { item: DragItem },
     DragTarget(DropTarget),
-    DragLeave(DropTarget),
     DragReleased,
     ToggleGroup(usize),
     StartGroupRename(usize),
@@ -111,6 +106,12 @@ pub enum PodcastMessage {
 
 impl State {
     pub(crate) fn podcast(&mut self, message: PodcastMessage) -> Task<Message> {
+        let task = self.handle_podcast(message);
+        self.capture_open_show();
+        task
+    }
+
+    fn handle_podcast(&mut self, message: PodcastMessage) -> Task<Message> {
         match message {
             PodcastMessage::QueryChanged(query) => {
                 self.podcasts.query = query;
@@ -145,7 +146,11 @@ impl State {
                     self.store_feed(result)
                 }
             }
-            PodcastMessage::OpenShow(feed_url) => self.open_show(feed_url),
+            PodcastMessage::OpenShow(feed_url) => {
+                self.podcasts.drag = None;
+                self.podcasts.drop_target = None;
+                self.open_show(feed_url)
+            }
             PodcastMessage::PreviewShow(feed_url) => self.preview_show(feed_url),
             PodcastMessage::RefreshShow(feed_url) => {
                 self.menu = None;
@@ -246,20 +251,20 @@ impl State {
                 self.podcasts.selected_episode = Some((feed_url, guid));
                 Task::none()
             }
-            PodcastMessage::DragPressed { item, x, y } => {
-                self.podcasts.drag = Some(DragGesture::press(item, x, y));
+            PodcastMessage::DragPressed { item } => {
+                // The live cursor is the press point. Coordinates baked
+                // into the previous frame are already behind the pointer.
+                self.podcasts.drag =
+                    Some(DragGesture::press(item, self.cursor.x, self.cursor.y));
                 self.podcasts.drop_target = None;
                 Task::none()
             }
             PodcastMessage::DragTarget(target) => {
+                // Remember the row even before the drag arms, and do not
+                // clear it when the pointer skims a gap. A later enter
+                // replaces it.
                 if self.podcasts.drag.is_some() {
                     self.podcasts.drop_target = Some(target);
-                }
-                Task::none()
-            }
-            PodcastMessage::DragLeave(target) => {
-                if self.podcasts.drop_target.as_ref() == Some(&target) {
-                    self.podcasts.drop_target = None;
                 }
                 Task::none()
             }
@@ -330,6 +335,21 @@ impl State {
                 }
                 Task::none()
             }
+        }
+    }
+
+    // --------------------------------------------------------
+    // Method: capture_open_show
+    // Purpose: Remembers the favorite on screen so the next launch
+    //          can reopen it. Search previews are left unsaved.
+    // --------------------------------------------------------
+    fn capture_open_show(&mut self) {
+        let Some(feed) = self.podcasts.selected.clone() else {
+            return;
+        };
+        if self.podcasts.is_favorite(&feed) && self.saved_show != feed {
+            self.saved_show = feed;
+            self.persist();
         }
     }
 
@@ -464,6 +484,16 @@ impl State {
         Task::none()
     }
 
+    fn drop_opens_show(&self, feed_url: &str, target: &DropTarget) -> bool {
+        match target {
+            DropTarget::OnShow(other) => other == feed_url,
+            DropTarget::Slot(slot) => {
+                podcast::drop_is_noop(&self.podcasts.groups, feed_url, *slot)
+            }
+            DropTarget::OnGroup(_) => false,
+        }
+    }
+
     fn release_drag(&mut self) -> Task<Message> {
         let Some(gesture) = self.podcasts.drag.take() else {
             return Task::none();
@@ -476,8 +506,16 @@ impl State {
             return Task::none();
         }
         let Some(target) = target else {
+            if let DragItem::Show(feed_url) = gesture.item {
+                return self.open_show(feed_url);
+            }
             return Task::none();
         };
+        if let DragItem::Show(feed_url) = &gesture.item
+            && self.drop_opens_show(&feed_url, &target)
+        {
+            return self.open_show(feed_url.clone());
+        }
         let changed = match (gesture.item, target) {
             (DragItem::Show(feed), DropTarget::OnShow(other)) => {
                 match podcast::group_with(&mut self.podcasts.groups, &feed, &other) {
@@ -593,6 +631,7 @@ impl State {
             podcast::credentials(&self.podcasts.saved_key, &self.podcasts.saved_secret)
         else {
             self.tab = super::Tab::Settings;
+            self.persist();
             self.status = "Add a Podcast Index API key to load older episodes.".to_string();
             return Task::none();
         };
@@ -641,6 +680,7 @@ impl State {
             podcast::credentials(&self.podcasts.saved_key, &self.podcasts.saved_secret)
         else {
             self.tab = super::Tab::Settings;
+            self.persist();
             self.status = "Add a Podcast Index API key to search.".to_string();
             return Task::none();
         };

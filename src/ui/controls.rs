@@ -37,9 +37,9 @@ pub fn view<'a>(
 ) -> Element<'a, Message> {
     let icon_color = palette.text;
     let play_icon = if playing {
-        icon(&icons::PAUSE, icon_color, 18.0)
+        icon(&icons::PAUSE, icon_color, 24.0)
     } else {
-        icon(&icons::PLAY, icon_color, 18.0)
+        icon(&icons::PLAY, icon_color, 24.0)
     };
     let repeat_icon = match repeat {
         RepeatMode::One => icon(&icons::REPEAT_ONE, palette.accent, 16.0),
@@ -60,7 +60,10 @@ pub fn view<'a>(
             false
         ),
         skip_button(&icons::REWIND, skip_back_secs, Message::SkipBack, palette,),
-        icon_button(play_icon, Message::TogglePlay, palette, false),
+        button(play_icon)
+            .on_press(Message::TogglePlay)
+            .padding(10)
+            .style(theme::play_button(palette)),
         skip_button(
             &icons::FORWARD,
             skip_forward_secs,

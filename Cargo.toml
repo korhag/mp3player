@@ -1,6 +1,6 @@
 [package]
 name = "soundkeep"
-version = "0.1.0"
+version = "0.1.8"
 edition = "2024"
 description = "Minimalist multi-theme music player"
 publish = false
@@ -18,7 +18,7 @@ strip = true
 [dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 directories = "6.0.0"
-iced = { version = "0.14.0", features = ["svg", "image-without-codecs", "tokio"] }
+iced = { version = "0.14.0", features = ["svg", "image-without-codecs", "tokio", "advanced"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 interprocess = "2.4.5"
 lofty = "0.25.4"

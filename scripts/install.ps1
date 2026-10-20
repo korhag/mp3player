@@ -122,7 +122,26 @@ if ($cargoToml -match '(?m)^version\s*=\s*"([^"]+)"') {
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 $exe = Join-Path $InstallDir "soundkeep.exe"
 $icon = Join-Path $InstallDir "soundkeep.ico"
-Copy-Item $builtExe $exe -Force
+
+# A running player locks soundkeep.exe, so Copy-Item cannot replace it.
+$running = @(Get-Process -Name "soundkeep" -ErrorAction SilentlyContinue)
+if ($running.Count -gt 0) {
+    Write-Host "Closing Soundkeep so the new version can replace it..."
+    $running | Stop-Process -Force -ErrorAction SilentlyContinue
+    $running | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
+}
+
+for ($attempt = 1; $attempt -le 15; $attempt++) {
+    try {
+        Copy-Item $builtExe $exe -Force -ErrorAction Stop
+        break
+    } catch [System.IO.IOException] {
+        if ($attempt -eq 15) {
+            throw "Could not replace $exe because it is still in use. Close Soundkeep and run this script again."
+        }
+        Start-Sleep -Milliseconds 400
+    }
+}
 Copy-Item (Join-Path $Root "assets\icon.ico") $icon -Force
 Copy-Item (Join-Path $PSScriptRoot "uninstall.ps1") (Join-Path $InstallDir "uninstall.ps1") -Force
 

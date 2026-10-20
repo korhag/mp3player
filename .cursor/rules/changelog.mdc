@@ -1,0 +1,28 @@
+---
+description: Update CHANGELOG.md and the version when a change is user-visible
+alwaysApply: true
+---
+
+# Changelog
+
+When a change is user-visible, update `CHANGELOG.md` and the version in `Cargo.toml` in the same edit.
+
+- Follow Keep a Changelog and Semantic Versioning.
+- Bump the patch number for a fix, the minor number for a feature, and the major number for a breaking change.
+- Move the bullets out of `## [Unreleased]` into `## [x.y.z] - YYYY-MM-DD`. Newest version first.
+- Leave an empty `## [Unreleased]` section for the next edit.
+- Use `### Added`, `### Changed`, `### Fixed`, or `### Removed`.
+- Put the newest bullet at the top of its group.
+- Write what the person using the app will notice.
+- Record behavior, UI, install, and bug fixes.
+- Skip comment-only edits, formatting, and refactors with no user-visible effect.
+
+```markdown
+## [Unreleased]
+
+## [0.1.6] - 2026-10-20
+
+### Fixed
+
+- Holding a favorite and dropping it groups or reorders that show.
+```
