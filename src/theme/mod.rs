@@ -110,6 +110,52 @@ pub fn episode_row(
 }
 
 // ------------------------------------------------------------
+// Function: favorite_row
+// Purpose: A favorite show. The selected show is filled, the
+//          show that is playing has an accent border, and a drop
+//          target uses a stronger tint so the three stay distinct.
+// ------------------------------------------------------------
+pub fn favorite_row(
+    palette: AppPalette,
+    selected: bool,
+    playing: bool,
+    drop_on: bool,
+) -> impl Fn(&Theme) -> container::Style {
+    move |_theme| {
+        let fill = if drop_on {
+            Some(mix_color(palette.accent, palette.surface, 0.45))
+        } else if selected {
+            Some(palette.surface_alt)
+        } else {
+            None
+        };
+        container::Style {
+            background: fill.map(Background::Color),
+            text_color: Some(palette.text),
+            border: Border {
+                color: if playing && !drop_on {
+                    palette.accent
+                } else {
+                    Color::TRANSPARENT
+                },
+                width: if playing && !drop_on { 1.0 } else { 0.0 },
+                radius: 8.0.into(),
+            },
+            ..Default::default()
+        }
+    }
+}
+
+fn mix_color(accent: Color, surface: Color, amount: f32) -> Color {
+    Color {
+        r: accent.r * amount + surface.r * (1.0 - amount),
+        g: accent.g * amount + surface.g * (1.0 - amount),
+        b: accent.b * amount + surface.b * (1.0 - amount),
+        a: 1.0,
+    }
+}
+
+// ------------------------------------------------------------
 // Function: drop_slot
 // Purpose: The insertion line shown while a favorite is dragged.
 // ------------------------------------------------------------

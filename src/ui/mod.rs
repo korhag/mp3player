@@ -11,6 +11,7 @@ mod now_playing;
 mod playlists_view;
 mod podcast_panes;
 mod podcasts_view;
+mod pointer;
 mod queue_view;
 mod settings_view;
 mod tabs;
@@ -94,7 +95,8 @@ pub fn view(state: &State) -> Element<'_, Message> {
     // The root stays a stack even when nothing floats over the page.
     // Swapping the page in as a plain container rebuilds every widget
     // under it, and the favorites list jumps back to the top.
-    stack(layers).into()
+    // The tracker sits outside the stack so the page tree never moves.
+    pointer::tracker(stack(layers), state.podcasts.drag.is_some()).into()
 }
 
 // ------------------------------------------------------------

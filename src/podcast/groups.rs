@@ -15,7 +15,7 @@ use crate::config;
 use crate::podcast::Show;
 
 /// Movement past this distance, in logical pixels, starts a drag.
-pub const DRAG_THRESHOLD: f32 = 4.0;
+pub const DRAG_THRESHOLD: f32 = 8.0;
 
 // ------------------------------------------------------------
 // Enum: FavoriteItem
@@ -724,20 +724,20 @@ mod tests {
     #[test]
     fn drag_arms_after_the_threshold() {
         let mut gesture = DragGesture::press(DragItem::Show("a".to_string()), 10.0, 10.0);
-        gesture.follow(12.0, 11.0);
+        gesture.follow(14.0, 12.0);
         assert!(!gesture.armed);
-        gesture.follow(15.0, 10.0);
+        gesture.follow(18.0, 10.0);
         assert!(gesture.armed);
     }
 
     #[test]
     fn drag_arms_from_the_row_press_point() {
         // The origin is the point the row reported, not an older cursor.
-        // Two pixels from that press stays a click. Five pixels arms it.
+        // Three pixels from that press stays a click. Eight pixels arms it.
         let mut gesture = DragGesture::press(DragItem::Show("a".to_string()), 40.0, 80.0);
-        gesture.follow(42.0, 80.0);
+        gesture.follow(43.0, 80.0);
         assert!(!gesture.armed);
-        gesture.follow(40.0, 85.0);
+        gesture.follow(40.0, 88.0);
         assert!(gesture.armed);
     }
 

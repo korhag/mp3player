@@ -9,7 +9,6 @@ use std::path::PathBuf;
 
 use iced::event::{self, Event};
 use iced::keyboard::{self, Key, Modifiers, key::Named};
-use iced::mouse;
 use iced::window;
 use iced::{Subscription, Task};
 
@@ -73,12 +72,6 @@ pub fn shortcuts_and_drops(
     _id: iced::window::Id,
 ) -> Option<Message> {
     match event {
-        Event::Mouse(mouse::Event::CursorMoved { position }) => {
-            Some(Message::CursorMoved(position))
-        }
-        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-            Some(Message::Podcast(crate::app::PodcastMessage::DragReleased))
-        }
         Event::Window(window::Event::Opened { .. }) => {
             crate::system::apply_shell_icons();
             None

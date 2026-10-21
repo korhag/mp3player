@@ -85,18 +85,31 @@ pub(super) fn detail_pane(state: &State, palette: AppPalette) -> Element<'_, Mes
         .into();
     };
     let phase = state.audio.snapshot().phase();
-    let filter = state.podcasts.episode_filter.trim().to_lowercase();
+    let words = podcast::query_words(&state.podcasts.episode_filter);
     let mut list = column![].spacing(2);
     let mut shown = 0usize;
-    for episode in &show.episodes {
-        if !filter.is_empty() && !episode.title.to_lowercase().contains(&filter) {
-            continue;
+    if words.is_empty() {
+        for episode in &show.episodes {
+            shown += 1;
+            list = list.push(episode_row(state, &show.feed_url, episode, phase, palette));
         }
-        shown += 1;
-        list = list.push(episode_row(state, &show.feed_url, episode, phase, palette));
+    } else {
+        let mut matches: Vec<(u32, usize, &Episode)> = show
+            .episodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, episode)| {
+                podcast::match_score(&words, &episode.title).map(|score| (score, index, episode))
+            })
+            .collect();
+        matches.sort_by(|left, right| right.0.cmp(&left.0).then(left.1.cmp(&right.1)));
+        for (_, _, episode) in matches {
+            shown += 1;
+            list = list.push(episode_row(state, &show.feed_url, episode, phase, palette));
+        }
     }
     if shown == 0 {
-        let message = if filter.is_empty() {
+        let message = if words.is_empty() {
             "This show has no episodes yet."
         } else {
             "No episodes match that filter."
@@ -120,27 +133,11 @@ pub(super) fn detail_pane(state: &State, palette: AppPalette) -> Element<'_, Mes
 }
 
 fn favorite_hint(state: &State) -> String {
-    let Some(gesture) = state.podcasts.drag.as_ref().filter(|gesture| gesture.armed) else {
-        return if state.podcasts.favorites.is_empty() {
-            "Favorite a show to keep its episodes.".to_string()
-        } else {
-            "Drag the top or bottom of a row to reorder. Drop on the middle to group.".to_string()
-        };
-    };
-    let name = match &gesture.item {
-        DragItem::Show(feed_url) => state
-            .podcasts
-            .favorites
-            .iter()
-            .find(|show| &show.feed_url == feed_url)
-            .map(|show| show.title.clone())
-            .unwrap_or_else(|| "Show".to_string()),
-        DragItem::Group(index) => match state.podcasts.groups.get(*index) {
-            Some(FavoriteItem::Group { name, .. }) => name.clone(),
-            _ => "Group".to_string(),
-        },
-    };
-    format!("Moving {name}")
+    if state.podcasts.favorites.is_empty() {
+        "Favorite a show to keep its episodes.".to_string()
+    } else {
+        "Drag the top or bottom of a row to reorder. Drop on the middle to group.".to_string()
+    }
 }
 
 // ------------------------------------------------------------
@@ -222,6 +219,7 @@ fn search_row(state: &State, palette: AppPalette) -> Element<'_, Message> {
 }
 
 fn favorite_list(state: &State, palette: AppPalette) -> Element<'_, Message> {
+    let playing = playing_feed(state);
     let mut list = column![].spacing(2);
     for (index, item) in state.podcasts.groups.iter().enumerate() {
         match item {
@@ -232,6 +230,7 @@ fn favorite_list(state: &State, palette: AppPalette) -> Element<'_, Message> {
                         show,
                         DropSlot::Before(index),
                         DropSlot::Before(index + 1),
+                        playing == Some(feed_url.as_str()),
                         palette,
                     ));
                 }
@@ -266,6 +265,7 @@ fn favorite_list(state: &State, palette: AppPalette) -> Element<'_, Message> {
                                 group: index,
                                 before: inner_index + 1,
                             },
+                            playing == Some(feed_url.as_str()),
                             palette,
                         ));
                     }
@@ -296,20 +296,14 @@ fn remove_from_group_row<'a>(state: &'a State, palette: AppPalette) -> Element<'
     } else {
         ""
     };
-    let mut body = container(text(label).size(12).color(palette.muted))
+    let body = container(text(label).size(12).color(palette.muted))
         .width(Length::Fill)
-        .padding(if holding_show {
-            iced::Padding::from([8, 4])
-        } else {
-            iced::Padding::ZERO
-        });
-    if holding_show {
-        body = body.style(theme::episode_row(palette, active, active));
-    } else {
-        body = body.height(Length::Fixed(0.0));
-    }
+        .height(Length::Fixed(32.0))
+        .padding([8, 4])
+        .align_y(iced::Alignment::Center)
+        .style(theme::favorite_row(palette, false, false, active));
     let slot = target;
-    band_sensor(body, report, false, None, true, move |_band, x, y| {
+    band_sensor(body, report, false, None, move |_band, x, y| {
         Message::Podcast(PodcastMessage::DragTarget {
             target: slot.clone(),
             x,
@@ -317,6 +311,18 @@ fn remove_from_group_row<'a>(state: &'a State, palette: AppPalette) -> Element<'
         })
     })
     .into()
+}
+
+fn playing_feed(state: &State) -> Option<&str> {
+    if state.queue.current().is_none() {
+        return None;
+    }
+    state.podcasts.favorites.iter().find_map(|show| {
+        show.episodes
+            .iter()
+            .any(|episode| is_current_episode(state, episode))
+            .then_some(show.feed_url.as_str())
+    })
 }
 
 fn find_favorite<'a>(state: &'a State, feed_url: &str) -> Option<&'a Show> {
@@ -367,7 +373,6 @@ fn drag_row<'a>(
         report,
         halves,
         Some(press),
-        false,
         move |band, x, y| {
             let target = match band {
                 DropBand::Before => before_target.clone(),
@@ -377,7 +382,11 @@ fn drag_row<'a>(
             Message::Podcast(PodcastMessage::DragTarget { target, x, y })
         },
     );
-    let mut area = mouse_area(sensor).interaction(iced::mouse::Interaction::Grab);
+    let mut area = mouse_area(sensor).interaction(if dragging {
+        iced::mouse::Interaction::Grabbing
+    } else {
+        iced::mouse::Interaction::Pointer
+    });
     if let Some(message) = double_click {
         area = area.on_double_click(message);
     }
@@ -427,7 +436,6 @@ struct BandSensor<'a> {
     halves: bool,
     on_press: Option<Box<dyn Fn(f32, f32) -> Message + 'a>>,
     on_band: Box<dyn Fn(DropBand, f32, f32) -> Message + 'a>,
-    report_release: bool,
 }
 
 fn band_sensor<'a>(
@@ -435,7 +443,6 @@ fn band_sensor<'a>(
     report: bool,
     halves: bool,
     press: Option<DragItem>,
-    report_release: bool,
     on_band: impl Fn(DropBand, f32, f32) -> Message + 'a,
 ) -> BandSensor<'a> {
     let on_press = press.map(|item| {
@@ -453,7 +460,6 @@ fn band_sensor<'a>(
         halves,
         on_press,
         on_band: Box::new(on_band),
-        report_release,
     }
 }
 
@@ -529,14 +535,6 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for BandSensor<'a> {
                     return;
                 }
                 shell.publish(on_press(position.x, position.y));
-            }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
-                if self.report_release =>
-            {
-                // Every row sees the release. Only the last row
-                // reports it, including when the pointer has left
-                // the list, so the drop still lands.
-                shell.publish(Message::Podcast(PodcastMessage::DragReleased));
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) if self.report => {
                 let Some(local) = cursor.position_in(bounds) else {
@@ -758,7 +756,7 @@ fn group_header<'a>(
         container(body)
             .padding([2, 4])
             .width(Length::Fill)
-            .style(theme::episode_row(palette, hovered, hovered))
+            .style(theme::favorite_row(palette, false, false, hovered))
             .into(),
         DropTarget::Slot(DropSlot::Before(index)),
         on,
@@ -775,6 +773,7 @@ fn favorite_show_row<'a>(
     show: &'a Show,
     before: DropSlot,
     after: DropSlot,
+    playing: bool,
     palette: AppPalette,
 ) -> Element<'a, Message> {
     let selected = state.podcasts.selected.as_deref() == Some(show.feed_url.as_str());
@@ -799,7 +798,7 @@ fn favorite_show_row<'a>(
         container(lines)
             .padding([2, 4])
             .width(Length::Fill)
-            .style(theme::episode_row(palette, selected || hovered, hovered))
+            .style(theme::favorite_row(palette, selected, playing, hovered))
             .into(),
         DropTarget::Slot(before),
         on,

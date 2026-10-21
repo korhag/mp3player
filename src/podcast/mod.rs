@@ -5,6 +5,7 @@
 
 mod download;
 mod feed;
+mod filter;
 mod groups;
 mod layout;
 mod positions;
@@ -21,6 +22,7 @@ use serde::{Deserialize, Serialize};
 
 pub use download::{download_task, episode_path, remove_download};
 pub use feed::{fetch_artwork, fetch_show};
+pub use filter::{match_score, query_words};
 pub use groups::{
     DragGesture, DragItem, DropBand, DropSlot, DropTarget, FavoriteItem, GroupChange,
     container_index, drop_is_noop, drop_zone, forget_show, group_index_of, group_with,

@@ -7,6 +7,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-10-21
+
+### Changed
+
+- The episode filter matches whole words. One typo still finds the name, and the closest titles are listed first.
+
+## [0.1.10] - 2026-10-21
+
+### Fixed
+
+- Clicking a favorite leaves the list where it is. The right-click menu opens next to the pointer.
+- A favorite uses a hand pointer until you are actually dragging it.
+- The show that is playing has a border. The show you selected is filled in. A show that is both has the border and the fill.
+
 ## [0.1.9] - 2026-10-20
 
 ### Fixed
