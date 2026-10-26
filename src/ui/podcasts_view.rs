@@ -116,7 +116,12 @@ pub(super) fn detail_pane(state: &State, palette: AppPalette) -> Element<'_, Mes
         };
         list = list.push(text(message).size(13).color(palette.muted));
     }
-    let mut body = column![detail_switch(state.podcasts.episodes_only, palette)]
+    let mut body = column![detail_switch(
+        show,
+        state.podcasts.episodes_only,
+        state.podcasts.is_favorite(&show.feed_url),
+        palette,
+    )]
         .spacing(6)
         .height(Length::Fill)
         .width(Length::Fill);
@@ -876,12 +881,27 @@ fn result_row(
         .into()
 }
 
-fn detail_switch(episodes_only: bool, palette: AppPalette) -> Element<'static, Message> {
+fn detail_switch(
+    show: &Show,
+    episodes_only: bool,
+    favorite: bool,
+    palette: AppPalette,
+) -> Element<'static, Message> {
+    let refresh = if favorite {
+        PodcastMessage::RefreshShow(show.feed_url.clone())
+    } else {
+        PodcastMessage::PreviewShow(show.feed_url.clone())
+    };
     row![
         detail_tab("Show", false, episodes_only, palette),
         detail_tab("Episodes", true, episodes_only, palette),
+        button(icon(&icons::REFRESH, palette.text, 14.0))
+            .padding(4)
+            .style(theme::quiet_button(palette))
+            .on_press(Message::Podcast(refresh)),
     ]
     .spacing(6)
+    .align_y(iced::Alignment::Center)
     .into()
 }
 

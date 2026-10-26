@@ -38,6 +38,7 @@ pub enum PodcastMessage {
     SaveKeys,
     CheckKey,
     KeyChecked(KeyStatus),
+    FavoriteRefreshed(Result<Show, String>),
     OpenSignup,
     LoadOlder(String),
     OlderLoaded {
@@ -175,9 +176,15 @@ impl State {
                 } else if matches!(status, KeyStatus::Rejected) {
                     self.status = "Podcast Index rejected that API key.".to_string();
                 }
+                let connected = matches!(status, KeyStatus::Valid);
                 self.podcasts.key_status = status;
-                Task::none()
+                if connected {
+                    self.start_favorite_refresh()
+                } else {
+                    Task::none()
+                }
             }
+            PodcastMessage::FavoriteRefreshed(result) => self.store_favorite_refresh(result),
             PodcastMessage::OpenSignup => {
                 self.status = match podcast::open_signup() {
                     Ok(podcast::SignupPlace::Window) => {
@@ -608,6 +615,80 @@ impl State {
         Task::done(Message::Podcast(PodcastMessage::CheckKey))
     }
 
+    // --------------------------------------------------------
+    // Method: start_favorite_refresh
+    // Purpose: Reads every favorite feed once after Podcast Index
+    //          connects. A later key check does not start another pass.
+    // --------------------------------------------------------
+    fn start_favorite_refresh(&mut self) -> Task<Message> {
+        if self.podcasts.startup_refresh_started {
+            return Task::none();
+        }
+        self.podcasts.startup_refresh_started = true;
+        let feeds: Vec<String> = self
+            .podcasts
+            .favorites
+            .iter()
+            .map(|show| show.feed_url.clone())
+            .collect();
+        if feeds.is_empty() {
+            return Task::none();
+        }
+        self.podcasts.refresh_pending = feeds.len();
+        self.podcasts.refresh_updated = false;
+        self.status = CHECKING_FAVORITES.to_string();
+        Task::batch(feeds.into_iter().map(|feed_url| {
+            Task::perform(podcast::fetch_show(feed_url), |result| {
+                Message::Podcast(PodcastMessage::FavoriteRefreshed(result))
+            })
+        }))
+    }
+
+    // --------------------------------------------------------
+    // Method: store_favorite_refresh
+    // Purpose: Merges one refreshed feed into its favorite slot.
+    //          The open show, filter, and groups stay as they are.
+    //          A missing show or a failed feed is skipped.
+    // --------------------------------------------------------
+    fn store_favorite_refresh(&mut self, result: Result<Show, String>) -> Task<Message> {
+        if self.podcasts.refresh_pending > 0 {
+            self.podcasts.refresh_pending -= 1;
+        }
+        if let Ok(fresh) = result
+            && self.merge_favorite(fresh)
+        {
+            self.podcasts.refresh_updated = true;
+        }
+        if self.podcasts.refresh_pending == 0 && self.podcasts.refresh_updated {
+            self.podcasts.offline = false;
+            self.status = "Episodes updated.".to_string();
+            self.remember_favorites();
+        } else if self.podcasts.refresh_pending == 0 && self.status == CHECKING_FAVORITES {
+            self.status.clear();
+        }
+        Task::none()
+    }
+
+    // --------------------------------------------------------
+    // Method: merge_favorite
+    // Purpose: Writes a fresh feed into the favorite that is still
+    //          in the list. Returns false when that show is gone.
+    // --------------------------------------------------------
+    fn merge_favorite(&mut self, fresh: Show) -> bool {
+        let Some(slot) = self.podcasts.favorite_mut(&fresh.feed_url) else {
+            return false;
+        };
+        let saved = slot.episodes.clone();
+        let description = slot.description.clone();
+        let mut fresh = fresh;
+        fresh.episodes = podcast::merge_episodes(&fresh.episodes, &saved);
+        if fresh.description.is_empty() {
+            fresh.description = description;
+        }
+        *slot = fresh;
+        true
+    }
+
     fn start_key_check(&mut self) -> Task<Message> {
         let Some((key, secret)) =
             podcast::credentials(&self.podcasts.saved_key, &self.podcasts.saved_secret)
@@ -992,6 +1073,8 @@ impl State {
             .is_some_and(|current| same_track(current, track))
     }
 }
+
+const CHECKING_FAVORITES: &str = "Checking favorites for new episodes.";
 
 fn fetch_feed(feed_url: String, preview: bool) -> Task<Message> {
     Task::perform(podcast::fetch_show(feed_url), move |result| {

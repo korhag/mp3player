@@ -132,6 +132,12 @@ pub struct PodcastState {
     /// Skip writing the playhead until the track changes. Set when the
     /// listener marks the current episode played or unplayed by hand.
     pub resume_skip_sync: bool,
+    /// This launch has already started the favorite refresh.
+    pub startup_refresh_started: bool,
+    /// Favorite feeds still being read after connect.
+    pub refresh_pending: usize,
+    /// At least one favorite was updated in the current pass.
+    pub refresh_updated: bool,
 }
 
 impl PodcastState {
@@ -172,6 +178,9 @@ impl PodcastState {
             selected_episode: None,
             episodes_only: false,
             resume_skip_sync: false,
+            startup_refresh_started: false,
+            refresh_pending: 0,
+            refresh_updated: false,
         }
     }
 

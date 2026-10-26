@@ -40,6 +40,8 @@ pub static STAR: LazyLock<Handle> =
     LazyLock::new(|| handle(include_bytes!("../../assets/icons/star.svg")));
 pub static STAR_FILLED: LazyLock<Handle> =
     LazyLock::new(|| handle(include_bytes!("../../assets/icons/star_filled.svg")));
+pub static REFRESH: LazyLock<Handle> =
+    LazyLock::new(|| handle(include_bytes!("../../assets/icons/refresh.svg")));
 
 // ------------------------------------------------------------
 // Function: icon

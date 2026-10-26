@@ -7,6 +7,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-10-23
+
+### Added
+
+- Opening the app reloads favorite shows after Podcast Index connects.
+
+## [0.1.12] - 2026-10-22
+
+### Added
+
+- A refresh icon next to Show and Episodes reloads that show's episodes.
+
 ## [0.1.11] - 2026-10-21
 
 ### Changed
