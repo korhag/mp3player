@@ -103,6 +103,9 @@ pub enum Message {
     },
     SetTab(Tab),
     Podcast(PodcastMessage),
+    UpdateFound(Option<crate::update::Offer>),
+    DismissUpdate,
+    InstallUpdate,
 }
 
 // ------------------------------------------------------------
@@ -143,6 +146,10 @@ pub struct State {
     /// A decoder length from that generation still belongs to the previous track.
     duration_generation: u64,
     end_armed: bool,
+    pub(crate) update_offer: Option<crate::update::Offer>,
+    /// Shown on the install card when the installer could not be started.
+    pub(crate) update_error: String,
+    dismissed_update_sha: String,
 }
 
 // ------------------------------------------------------------
@@ -210,6 +217,15 @@ fn boot() -> (State, Task<Message>) {
     {
         tasks.push(Task::done(Message::Podcast(PodcastMessage::CheckKey)));
     }
+    let dismissed = settings.dismissed_update_sha.clone();
+    tasks.push(Task::perform(
+        async move {
+            tokio::task::spawn_blocking(move || crate::update::look_for_update(&dismissed))
+                .await
+                .unwrap_or(None)
+        },
+        Message::UpdateFound,
+    ));
     let task = if tasks.is_empty() {
         Task::none()
     } else {
@@ -361,6 +377,9 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::Escape => {
+            if state.dismiss_update() {
+                return Task::none();
+            }
             if state.menu.take().is_none() {
                 state.rename_target = None;
             }
@@ -389,6 +408,21 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::Podcast(message) => state.podcast(message),
+        Message::UpdateFound(offer) => {
+            state.update_offer = offer;
+            Task::none()
+        }
+        Message::DismissUpdate => {
+            state.dismiss_update();
+            Task::none()
+        }
+        Message::InstallUpdate => match crate::update::launch_installer() {
+            Ok(()) => iced::exit(),
+            Err(error) => {
+                state.update_error = format!("Could not start the installer: {error}");
+                Task::none()
+            }
+        },
     }
 }
 
@@ -454,7 +488,25 @@ impl State {
             seen_generation: 0,
             duration_generation: 0,
             end_armed: false,
+            update_offer: None,
+            update_error: String::new(),
+            dismissed_update_sha: settings.dismissed_update_sha.clone(),
         }
+    }
+
+    // --------------------------------------------------------
+    // Function: dismiss_update
+    // Purpose: Remembers this checkout commit so the same pull
+    //          does not ask again. A later commit still asks.
+    // --------------------------------------------------------
+    fn dismiss_update(&mut self) -> bool {
+        let Some(offer) = self.update_offer.take() else {
+            return false;
+        };
+        self.update_error.clear();
+        self.dismissed_update_sha = offer.source_sha;
+        self.persist();
+        true
     }
 
     pub(crate) fn persist(&self) {
@@ -472,6 +524,7 @@ impl State {
             skip_forward_secs: self.skip_forward_secs,
             tab: self.tab,
             selected_show: self.saved_show.clone(),
+            dismissed_update_sha: self.dismissed_update_sha.clone(),
         };
         let _ = settings.save();
         let _ = crate::podcast::save_listening(&self.podcasts.listening);

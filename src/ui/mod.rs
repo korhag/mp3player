@@ -15,6 +15,7 @@ mod pointer;
 mod queue_view;
 mod settings_view;
 mod tabs;
+mod update_prompt;
 
 use iced::widget::scrollable::Scrollbar;
 use iced::widget::{column, container, row, scrollable, stack};
@@ -91,6 +92,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
     }
     if state.menu.is_some() {
         layers.push(context_menu::layer(state, palette));
+    }
+    if state.update_offer.is_some() {
+        layers.push(update_prompt::layer(state, palette));
     }
     // The root stays a stack even when nothing floats over the page.
     // Swapping the page in as a plain container rebuilds every widget

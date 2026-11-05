@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-11-04
+
+### Added
+
+- Opening Soundkeep offers to install a newer build already pulled into the project folder. Installing updates the application menu, taskbar, and shortcuts.
+
 ## [0.1.13] - 2026-10-23
 
 ### Added

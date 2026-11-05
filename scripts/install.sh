@@ -10,8 +10,10 @@
 #   ./scripts/install.sh
 #   ./scripts/install.sh --no-prompt
 #   ./scripts/install.sh --default-app
+#   ./scripts/install.sh --from-app
 #
 # Re-run the script to upgrade an existing install.
+# --from-app is the in-app upgrade: no questions, then reopen Soundkeep.
 # Keep the MIME list in sync with EXTENSIONS in src/config.rs.
 # ------------------------------------------------------------
 
@@ -20,17 +22,33 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NO_PROMPT=0
 SET_DEFAULT=0
+FROM_APP=0
 
 for arg in "$@"; do
     case "$arg" in
         --no-prompt) NO_PROMPT=1 ;;
         --default-app) SET_DEFAULT=1 ;;
+        --from-app) FROM_APP=1; NO_PROMPT=1 ;;
         *)
             echo "Unknown option: $arg" >&2
             exit 1
             ;;
     esac
 done
+
+# A failed upgrade started from the app should leave the terminal
+# open long enough to read the error.
+if [[ "$FROM_APP" -eq 1 ]]; then
+    on_from_app_exit() {
+        local status=$?
+        if [[ "$status" -ne 0 && -t 0 ]]; then
+            echo
+            echo "Install failed. Press Enter to close."
+            read -r _ || true
+        fi
+    }
+    trap on_from_app_exit EXIT
+fi
 
 ask_yes() {
     local prompt="$1"
@@ -70,6 +88,105 @@ install_packages() {
         exit 1
     fi
 }
+
+# ------------------------------------------------------------
+# Function: close_running_player
+# Purpose: The running copy keeps the old program in memory.
+#          An upgrade started from the app replaces it.
+# ------------------------------------------------------------
+close_running_player() {
+    if [[ "$FROM_APP" -ne 1 ]]; then
+        return 0
+    fi
+    if ! command -v pgrep >/dev/null 2>&1; then
+        return 0
+    fi
+    if pgrep -x soundkeep >/dev/null 2>&1; then
+        echo "Closing Soundkeep so the new version can replace it..."
+        pkill -x soundkeep || true
+        sleep 0.5
+    fi
+}
+
+# ------------------------------------------------------------
+# Function: install_macos
+# Purpose: Builds a per-user app bundle so the Dock and
+#          Launchpad launch the new copy.
+# ------------------------------------------------------------
+install_macos() {
+    echo "Soundkeep install"
+    echo "Project: $ROOT"
+    if ! command -v cargo >/dev/null 2>&1 && [[ -f "$HOME/.cargo/env" ]]; then
+        # shellcheck disable=SC1091
+        source "$HOME/.cargo/env"
+    fi
+    if ! command -v cargo >/dev/null 2>&1; then
+        echo "Rust (cargo) was not found." >&2
+        echo "Install Rust from https://rustup.rs and run this script again." >&2
+        exit 1
+    fi
+
+    echo "Building release binary..."
+    (cd "$ROOT" && cargo build --release)
+
+    local version="0.1.0"
+    if [[ -f "$ROOT/Cargo.toml" ]]; then
+        version="$(grep -m1 '^version' "$ROOT/Cargo.toml" | sed -E 's/.*"([^"]+)".*/\1/')"
+    fi
+
+    local app="$HOME/Applications/Soundkeep.app"
+    close_running_player
+    rm -rf "$app"
+    mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+    cp "$ROOT/target/release/soundkeep" "$app/Contents/MacOS/soundkeep"
+    chmod 755 "$app/Contents/MacOS/soundkeep"
+    cat > "$app/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Soundkeep</string>
+  <key>CFBundleDisplayName</key><string>Soundkeep</string>
+  <key>CFBundleIdentifier</key><string>app.soundkeep.player</string>
+  <key>CFBundleVersion</key><string>${version}</string>
+  <key>CFBundleShortVersionString</key><string>${version}</string>
+  <key>CFBundleExecutable</key><string>soundkeep</string>
+  <key>CFBundleIconFile</key><string>soundkeep</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+EOF
+    if command -v sips >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1; then
+        local iconset
+        iconset="$(mktemp -d)/soundkeep.iconset"
+        mkdir -p "$iconset"
+        sips -z 256 256 "$ROOT/assets/icon.png" --out "$iconset/icon_256x256.png" >/dev/null || true
+        sips -z 512 512 "$ROOT/assets/icon.png" --out "$iconset/icon_512x512.png" >/dev/null || true
+        if ! iconutil -c icns "$iconset" -o "$app/Contents/Resources/soundkeep.icns"; then
+            cp "$ROOT/assets/icon.png" "$app/Contents/Resources/soundkeep.png" || true
+        fi
+        rm -rf "$(dirname "$iconset")"
+    else
+        cp "$ROOT/assets/icon.png" "$app/Contents/Resources/soundkeep.png" || true
+    fi
+    local lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+    if [[ -x "$lsregister" ]]; then
+        "$lsregister" -f "$app" || true
+    fi
+    echo
+    echo "Installed Soundkeep ${version} to $app"
+    if [[ "$FROM_APP" -eq 1 ]]; then
+        echo "Opening Soundkeep..."
+        open "$app"
+    fi
+}
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    install_macos
+    exit 0
+fi
 
 echo "Soundkeep install"
 echo "Project: $ROOT"
@@ -117,6 +234,7 @@ mkdir -p \
     "$HOME/.local/share/applications" \
     "$HOME/.local/share/icons/hicolor/256x256/apps"
 
+close_running_player
 install -m 755 "$ROOT/target/release/soundkeep" "$HOME/.local/bin/soundkeep"
 install -m 644 "$ROOT/assets/icon.png" "$HOME/.local/share/icons/hicolor/256x256/apps/soundkeep.png"
 install -m 644 "$ROOT/packaging/linux/soundkeep.desktop" "$HOME/.local/share/applications/soundkeep.desktop"
@@ -160,3 +278,8 @@ echo
 echo "Installed Soundkeep to $HOME/.local/bin/soundkeep"
 echo "Open it from the application menu, or right-click an audio file and choose Open with."
 echo "To remove it, run ./scripts/uninstall.sh"
+
+if [[ "$FROM_APP" -eq 1 ]]; then
+    echo "Opening Soundkeep..."
+    nohup "$HOME/.local/bin/soundkeep" >/dev/null 2>&1 &
+fi

@@ -19,6 +19,7 @@ mod system;
 mod tasks;
 mod theme;
 mod ui;
+mod update;
 mod util;
 
 use std::path::PathBuf;

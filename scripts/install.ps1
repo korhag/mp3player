@@ -7,15 +7,22 @@
 #   scripts\install.cmd
 #   scripts\install.cmd -Desktop
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -FromApp
 #
 # Re-run the script to upgrade an existing install.
+# -FromApp is the in-app upgrade: no questions, then reopen Soundkeep.
 # ------------------------------------------------------------
 
 [CmdletBinding()]
 param(
     [switch]$Desktop,
-    [switch]$NoPrompt
+    [switch]$NoPrompt,
+    [switch]$FromApp
 )
+
+if ($FromApp) {
+    $NoPrompt = $true
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -162,8 +169,9 @@ function New-Shortcut([string]$ShortcutPath, [string]$Target) {
 $startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 New-Item -ItemType Directory -Force -Path $startMenu | Out-Null
 New-Shortcut (Join-Path $startMenu "Soundkeep.lnk") $exe
-if ($Desktop) {
-    New-Shortcut (Join-Path ([Environment]::GetFolderPath("Desktop")) "Soundkeep.lnk") $exe
+$desktopLink = Join-Path ([Environment]::GetFolderPath("Desktop")) "Soundkeep.lnk"
+if ($Desktop -or (Test-Path -LiteralPath $desktopLink)) {
+    New-Shortcut $desktopLink $exe
 }
 
 $command = "`"$exe`" `"%1`""
@@ -235,6 +243,10 @@ public static class SoundkeepShellNotify {
 }
 # SHCNE_ASSOCCHANGED tells Explorer to reload file associations.
 [SoundkeepShellNotify]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
+
+if ($FromApp) {
+    Start-Process -FilePath $exe
+}
 
 Write-Host ""
 Write-Host "Installed $AppName $version"

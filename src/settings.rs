@@ -83,6 +83,9 @@ pub struct Settings {
     // Feed URL of the last open favorite. Empty picks the first favorite.
     #[serde(default)]
     pub selected_show: String,
+    // Checkout commit the person chose not to install. A later pull asks again.
+    #[serde(default)]
+    pub dismissed_update_sha: String,
 }
 
 impl Default for Settings {
@@ -100,6 +103,7 @@ impl Default for Settings {
             skip_forward_secs: default_skip_forward(),
             tab: Tab::Library,
             selected_show: String::new(),
+            dismissed_update_sha: String::new(),
         }
     }
 }
@@ -185,6 +189,7 @@ mod tests {
         assert!(settings.queue.is_empty());
         assert_eq!(settings.tab, Tab::Library);
         assert!(settings.selected_show.is_empty());
+        assert!(settings.dismissed_update_sha.is_empty());
     }
 
     #[test]
@@ -264,12 +269,14 @@ mod tests {
         object.remove("skip_forward_secs");
         object.remove("tab");
         object.remove("selected_show");
+        object.remove("dismissed_update_sha");
         fs::write(&path, serde_json::to_string(&value).unwrap()).unwrap();
         let loaded = Settings::load_from(&path);
         assert_eq!(loaded.skip_back_secs, 15);
         assert_eq!(loaded.skip_forward_secs, 30);
         assert_eq!(loaded.tab, Tab::Library);
         assert!(loaded.selected_show.is_empty());
+        assert!(loaded.dismissed_update_sha.is_empty());
         assert!((loaded.volume - 0.3).abs() < f32::EPSILON);
         let _ = fs::remove_file(path);
     }
